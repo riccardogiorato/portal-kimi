@@ -8,4 +8,4 @@ Fan out sub-agents and have each one tackle a specific subsystem individually so
 
 Use /loop on each item and have a separate sub-agent review each subsystem with extremely high standards, rejecting anything that doesn't meet AAA quality and iterating until it does.
 
-Build everything using production-quality code and best practices.
+Build everything using production-quality code and best practices and make sure to use Bun not npm.
