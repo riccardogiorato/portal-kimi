@@ -4,7 +4,7 @@
  */
 import { MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
 import type { SaveSystem } from '../core/SaveSystem';
-import type { ChamberDefinition, IGameContext, ILevelSystem } from '../core/types';
+import type { ChamberDefinition, IGameContext, ILevelSystem, LevelListEntry } from '../core/types';
 
 const STUB_CHAMBER: ChamberDefinition = {
   id: 'stub-chamber',
@@ -32,8 +32,8 @@ export class LevelSystem implements ILevelSystem {
   get unlockedLevelIndex(): number {
     return 0;
   }
-  getLevelList(): { id: string; name: string }[] {
-    return [{ id: STUB_CHAMBER.id, name: STUB_CHAMBER.name }];
+  getLevelList(): LevelListEntry[] {
+    return [{ id: STUB_CHAMBER.id, name: STUB_CHAMBER.name, locked: false, completed: false }];
   }
 
   init(ctx: IGameContext): void {

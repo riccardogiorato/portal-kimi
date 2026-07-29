@@ -180,6 +180,8 @@ export interface GameEventMap {
   'player:step': { speed: number };
   /** E-raycast hit a mesh whose metadata.interactableId is set. */
   'player:interacted': { targetId: string };
+  /** Hover prompt for the HUD ("[E] Pick up"); null clears. Emitted on change only. */
+  'player:interactPrompt': { text: string | null };
 
   'portal:fired': { color: PortalColor };
   'portal:placed': { color: PortalColor; position: Vector3; normal: Vector3 };
@@ -377,6 +379,14 @@ export interface IUISystem extends ISystem {
   fadeFromBlack(durationSeconds: number): Promise<void>;
 }
 
+export interface LevelListEntry {
+  id: string;
+  name: string;
+  /** Beyond save progress — not selectable. */
+  locked: boolean;
+  completed: boolean;
+}
+
 export interface ILevelSystem extends ISystem {
   loadLevel(levelIndex: number): Promise<void>;
   restartLevel(): Promise<void>;
@@ -384,8 +394,8 @@ export interface ILevelSystem extends ISystem {
   readonly levelCount: number;
   /** Highest chamber index the player may start from (save-driven). */
   readonly unlockedLevelIndex: number;
-  /** Chamber ids/names for menus, in campaign order. */
-  getLevelList(): { id: string; name: string }[];
+  /** Chambers in campaign order, annotated for chapter-select menus. */
+  getLevelList(): LevelListEntry[];
 }
 
 // ---------------------------------------------------------------------------
