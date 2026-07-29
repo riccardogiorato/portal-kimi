@@ -6,6 +6,6 @@ Build it in Babylon.js with TypeScript. Focus on creating the best possible sing
 
 Fan out sub-agents and have each one tackle a specific subsystem individually so the game is utterly perfect.
 
-Use /goal on each item and have a separate sub-agent review each subsystem with extremely high standards, rejecting anything that doesn't meet AAA quality and iterating until it does.
+Use /loop on each item and have a separate sub-agent review each subsystem with extremely high standards, rejecting anything that doesn't meet AAA quality and iterating until it does.
 
 Build everything using production-quality code and best practices.
