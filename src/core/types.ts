@@ -183,6 +183,9 @@ export interface GameEventMap {
   /** Hover prompt for the HUD ("[E] Pick up"); null clears. Emitted on change only. */
   'player:interactPrompt': { text: string | null };
 
+  /** Raw fire input (mouse buttons via InputManager) — portals subscribe. */
+  'input:fire': { color: PortalColor };
+
   'portal:fired': { color: PortalColor };
   'portal:placed': { color: PortalColor; position: Vector3; normal: Vector3 };
   'portal:placementFailed': { color: PortalColor; reason: string };
@@ -244,6 +247,8 @@ export interface IPortalHandle {
   readonly isPlaced: boolean;
   readonly position: Vector3;
   readonly normal: Vector3;
+  /** Portal ellipse orientation (needed for pair transforms, e.g. lasers). */
+  readonly up: Vector3;
 }
 
 export interface IPortalSystem extends ISystem {
@@ -300,8 +305,14 @@ export interface IPhysicsSystem extends ISystem {
   applyImpulse(handle: PhysicsBodyHandle, impulse: Vector3): void;
   setLinearVelocity(handle: PhysicsBodyHandle, velocity: Vector3): void;
   getLinearVelocity(handle: PhysicsBodyHandle): Vector3;
+  /** Zero-allocation variant for hot paths (portal scans, puzzle elements). */
+  getLinearVelocityToRef(handle: PhysicsBodyHandle, out: Vector3): boolean;
   getBodyPosition(handle: PhysicsBodyHandle): Vector3;
+  /** Zero-allocation variant for hot paths. */
+  getBodyPositionToRef(handle: PhysicsBodyHandle, out: Vector3): boolean;
   getBodyQuaternion(handle: PhysicsBodyHandle): Quaternion;
+  /** Seconds since the body was last seen moving (portal scan optimization). */
+  getIdleSeconds(handle: PhysicsBodyHandle): number;
   /** Instant move with no physics interpolation (portal travel). */
   teleportBody(handle: PhysicsBodyHandle, position: Vector3, rotation: Quaternion): void;
   getMeshForBody(handle: PhysicsBodyHandle): AbstractMesh | null;

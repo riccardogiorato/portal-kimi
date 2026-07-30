@@ -4,8 +4,10 @@
  * shake(intensity) accumulates trauma; the per-frame rotational offset is
  * trauma² × smooth deterministic noise, so small hits are subtle and big
  * hits decay with a long tail. RenderingSystem applies the offset additively
- * to the camera AFTER the player controller has written its rotation, and
- * removes the previous frame's offset first — the two never fight.
+ * to the camera AFTER the player controller has written its rotation. The
+ * player writes a fresh unshaken base every frame, so rendering ONLY ADDS the
+ * current frame's offset — it never subtracts a previous one, which would
+ * invert the shake and accumulate drift across frames.
  */
 import { clamp } from '../core/math';
 
@@ -62,8 +64,24 @@ export class ScreenShake {
     this.trauma = Math.max(0, this.trauma - SHAKE_DECAY_PER_SECOND * dtSeconds);
     const amplitude = this.trauma * this.trauma;
     const t = this.time * NOISE_RATE;
-    out.pitch = amplitude * SHAKE_MAX_PITCH * shakeNoise(t, 0);
-    out.yaw = amplitude * SHAKE_MAX_YAW * shakeNoise(t, 11.7);
-    out.roll = amplitude * SHAKE_MAX_ROLL * shakeNoise(t, 27.3);
+    // 0 * negative noise yields -0; normalize to +0 so the offset is exactly
+    // zero (Object.is) once trauma has fully decayed.
+    const norm0 = (v: number): number => (v === 0 ? 0 : v);
+    out.pitch = norm0(amplitude * SHAKE_MAX_PITCH * shakeNoise(t, 0));
+    out.yaw = norm0(amplitude * SHAKE_MAX_YAW * shakeNoise(t, 11.7));
+    out.roll = norm0(amplitude * SHAKE_MAX_ROLL * shakeNoise(t, 27.3));
   }
+}
+
+/**
+ * Apply one frame of shake to a camera's Euler rotation, add-only. The player
+ * controller writes a fresh unshaken base rotation every frame (before
+ * rendering.update), so rendering only adds the current offset — subtracting
+ * last frame's offset would invert the shake and accumulate drift. Mutates
+ * `rotation` in place; allocation-free.
+ */
+export function applyShakeAdditive(rotation: { x: number; y: number; z: number }, offset: ShakeOffset): void {
+  rotation.x += offset.pitch;
+  rotation.y += offset.yaw;
+  rotation.z += offset.roll;
 }

@@ -138,6 +138,8 @@ export class InputManager {
     this.held.add(action);
     const handlers = this.pressHandlers.get(action);
     if (handlers) for (const handler of [...handlers]) handler();
+    // Bus mirror so systems without InputManager access (portals) can react.
+    this.events.emit('input:fire', { color: action === 'fireBlue' ? 'blue' : 'orange' });
     event.preventDefault();
   };
 

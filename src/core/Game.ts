@@ -39,6 +39,7 @@ export class Game {
   private state: GameState = 'boot';
   private levelStartTimeMs = 0;
   private disposed = false;
+  private consecutiveRenderErrors = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -136,7 +137,24 @@ export class Game {
     systems.audio.update(dt);
     systems.ui.update(dt);
 
-    this.scene.render();
+    try {
+      this.scene.render();
+      this.consecutiveRenderErrors = 0;
+    } catch (error) {
+      // Circuit breaker: an optional effect (SSAO's onApply is the known
+      // case) can throw per-frame on unsupported drivers, aborting renders
+      // and blacking out the canvas. Degrade gracefully instead of dying.
+      this.consecutiveRenderErrors++;
+      if (this.consecutiveRenderErrors === 1) {
+        console.error('[game] render error — disabling SSAO:', error);
+        (systems.rendering as RenderingSystem).disableSSAO();
+      } else if (this.consecutiveRenderErrors === 3) {
+        console.error('[game] render errors persist — disabling post effects:', error);
+        (systems.rendering as RenderingSystem).disablePostEffects();
+      } else if (this.consecutiveRenderErrors >= 6) {
+        throw error; // genuine bug, not an optional effect — fail loud.
+      }
+    }
   }
 
   // -------------------------------------------------------------------------

@@ -55,6 +55,48 @@ export function portalPairTransform(source: PortalFrame, target: PortalFrame): M
   return sourceInverse.multiply(FLIP_Y_PI).multiply(targetWorld);
 }
 
+// Module-level scratch for the ToRef variants (JS is single-threaded; these
+// are never held across calls). Keeps per-frame portal math allocation-free.
+const scratchSourceWorld = Matrix.Identity();
+const scratchTargetWorld = Matrix.Identity();
+const scratchSourceInverse = Matrix.Identity();
+const scratchZAxis = Vector3.Zero();
+const scratchXAxis = Vector3.Zero();
+const scratchYAxis = Vector3.Zero();
+const scratchFallbackUp = Vector3.Zero();
+
+/** Allocation-free variant of portalFrameToMatrix. */
+export function portalFrameToMatrixToRef(frame: PortalFrame, out: Matrix): void {
+  frame.normal.normalizeToRef(scratchZAxis);
+  let up = frame.up;
+  Vector3.CrossToRef(up, scratchZAxis, scratchXAxis);
+  if (scratchXAxis.lengthSquared() < 1e-8) {
+    // Normal parallel to up (floor/ceiling portal): pick a stable fallback.
+    scratchFallbackUp.set(0, 0, scratchZAxis.y > 0 ? -1 : 1);
+    if (Math.abs(scratchZAxis.y) <= 0.99) scratchFallbackUp.set(0, 1, 0);
+    up = scratchFallbackUp;
+    Vector3.CrossToRef(up, scratchZAxis, scratchXAxis);
+  }
+  scratchXAxis.normalize();
+  Vector3.CrossToRef(scratchZAxis, scratchXAxis, scratchYAxis);
+  Matrix.FromValuesToRef(
+    scratchXAxis.x, scratchXAxis.y, scratchXAxis.z, 0,
+    scratchYAxis.x, scratchYAxis.y, scratchYAxis.z, 0,
+    scratchZAxis.x, scratchZAxis.y, scratchZAxis.z, 0,
+    frame.position.x, frame.position.y, frame.position.z, 1,
+    out,
+  );
+}
+
+/** Allocation-free variant of portalPairTransform. */
+export function portalPairTransformToRef(source: PortalFrame, target: PortalFrame, out: Matrix): void {
+  portalFrameToMatrixToRef(source, scratchSourceWorld);
+  portalFrameToMatrixToRef(target, scratchTargetWorld);
+  scratchSourceWorld.invertToRef(scratchSourceInverse);
+  scratchSourceInverse.multiplyToRef(FLIP_Y_PI, out);
+  out.multiplyInPlace(scratchTargetWorld);
+}
+
 /** Rotate a direction/velocity vector by a portal pair transform. */
 export function transformDirectionThroughPortal(direction: Vector3, pairTransform: Matrix): Vector3 {
   return Vector3.TransformNormal(direction, pairTransform);
@@ -129,6 +171,95 @@ export function makeObliqueProjection(projection: Matrix, clipPlane: { x: number
     clipPlane.x * scale, clipPlane.y * scale, clipPlane.z * scale + 1.0, clipPlane.w * scale,
     m[12], m[13], m[14], m[15],
   );
+}
+
+/** Allocation-free variant of makeObliqueProjection (per-frame RTT path). */
+export function makeObliqueProjectionToRef(
+  projection: Matrix,
+  clipPlane: { x: number; y: number; z: number; w: number },
+  out: Matrix,
+): void {
+  const m = projection.m;
+  const qx = (Math.sign(clipPlane.x) + m[8]) / m[0];
+  const qy = (Math.sign(clipPlane.y) + m[9]) / m[5];
+  const qw = (1.0 + m[10]) / m[14];
+  const dot = clipPlane.x * qx + clipPlane.y * qy + clipPlane.z * -1.0 + clipPlane.w * qw;
+  const scale = 2.0 / dot;
+  Matrix.FromValuesToRef(
+    m[0], m[1], m[2], m[3],
+    m[4], m[5], m[6], m[7],
+    clipPlane.x * scale, clipPlane.y * scale, clipPlane.z * scale + 1.0, clipPlane.w * scale,
+    m[12], m[13], m[14], m[15],
+    out,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Allocation-free portal query variants (hot paths: portal teleport scans run
+// these per entity per frame). Pure scalar math — no temporaries.
+// ---------------------------------------------------------------------------
+
+/** Scalar variant of signedDistanceToPortalPlane. */
+export function signedDistanceToPortalPlaneFast(point: Vector3, frame: PortalFrame): number {
+  return (
+    (point.x - frame.position.x) * frame.normal.x +
+    (point.y - frame.position.y) * frame.normal.y +
+    (point.z - frame.position.z) * frame.normal.z
+  );
+}
+
+/** Scalar variant of isWithinPortalBounds. */
+export function isWithinPortalBoundsFast(
+  point: Vector3,
+  frame: PortalFrame,
+  halfWidth: number,
+  halfHeight: number,
+): boolean {
+  const zx = frame.normal.x;
+  const zy = frame.normal.y;
+  const zz = frame.normal.z;
+  // xAxis = up × normal (normalized)
+  let xx = frame.up.y * zz - frame.up.z * zy;
+  let xy = frame.up.z * zx - frame.up.x * zz;
+  let xz = frame.up.x * zy - frame.up.y * zx;
+  const len = Math.sqrt(xx * xx + xy * xy + xz * xz);
+  if (len < 1e-6) return false;
+  xx /= len;
+  xy /= len;
+  xz /= len;
+  // yAxis = normal × xAxis (already unit: perpendicular unit vectors)
+  const yx = zy * xz - zz * xy;
+  const yy = zz * xx - zx * xz;
+  const yz = zx * xy - zy * xx;
+  const lx = point.x - frame.position.x;
+  const ly = point.y - frame.position.y;
+  const lz = point.z - frame.position.z;
+  const u = (lx * xx + ly * xy + lz * xz) / halfWidth;
+  const v = (lx * yx + ly * yy + lz * yz) / halfHeight;
+  return u * u + v * v <= 1;
+}
+
+const scratchCrossingPoint = Vector3.Zero();
+
+/** Allocation-free variant of crossedPortalThisFrame. */
+export function crossedPortalThisFrameFast(
+  previousPosition: Vector3,
+  currentPosition: Vector3,
+  frame: PortalFrame,
+  halfWidth: number,
+  halfHeight: number,
+): boolean {
+  const prevDist = signedDistanceToPortalPlaneFast(previousPosition, frame);
+  const currDist = signedDistanceToPortalPlaneFast(currentPosition, frame);
+  if (prevDist === 0 || currDist === 0) return false;
+  if (Math.sign(prevDist) === Math.sign(currDist)) return false;
+  const t = prevDist / (prevDist - currDist);
+  scratchCrossingPoint.set(
+    previousPosition.x + (currentPosition.x - previousPosition.x) * t,
+    previousPosition.y + (currentPosition.y - previousPosition.y) * t,
+    previousPosition.z + (currentPosition.z - previousPosition.z) * t,
+  );
+  return isWithinPortalBoundsFast(scratchCrossingPoint, frame, halfWidth, halfHeight);
 }
 
 /** Framerate-independent exponential smoothing (Freya Holmér's damp). */

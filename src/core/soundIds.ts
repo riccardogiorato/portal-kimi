@@ -11,6 +11,7 @@ export const SOUND = {
   portalEnter: 'portal.enter',
   portalExit: 'portal.exit',
   portalFizzle: 'portal.fizzle',
+  objectTeleport: 'object.teleport',
 
   uiClick: 'ui.click',
   uiHover: 'ui.hover',

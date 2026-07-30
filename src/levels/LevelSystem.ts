@@ -1,62 +1,193 @@
 /**
- * STUB — replaced by the levels subsystem agent.
- * Builds a bare floor so integration can run before real chambers land.
+ * levels/LevelSystem.ts — Chamber data, chamber building, level flow, and completion.
  */
-import { MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
+import { CONFIG } from '../core/Config';
 import type { SaveSystem } from '../core/SaveSystem';
+import { SOUND } from '../core/soundIds';
 import type { ChamberDefinition, IGameContext, ILevelSystem, LevelListEntry } from '../core/types';
+import { ChamberBuilder } from './ChamberBuilder';
+import { CAMPAIGN } from './chambers';
 
-const STUB_CHAMBER: ChamberDefinition = {
-  id: 'stub-chamber',
-  name: 'Test Chamber 00',
-  size: { width: 20, height: 6, depth: 20 },
-  spawn: { position: { x: 0, y: 1.8, z: -6 }, yawDegrees: 0 },
-  elements: [],
-};
+const INTRO_LINE_GAP_SECONDS = 3.5;
 
 export class LevelSystem implements ILevelSystem {
   readonly name = 'levels';
-  private ctx!: IGameContext;
-  private levelIndex = 0;
 
-  constructor(private readonly save: SaveSystem) {
-    void this.save;
+  private ctx!: IGameContext;
+  private builder: ChamberBuilder | null = null;
+  private _currentLevelIndex = 0;
+  private currentDefinition: ChamberDefinition | null = null;
+  private completed = false;
+  private hintShown = false;
+  private hintTimer = 0;
+  private introTimeouts: number[] = [];
+  /** Map from loop id -> sound id for active ambient/chamber loops. */
+  private activeLoops = new Map<string, string>();
+  private unsubscribeCompletion?: () => void;
+  private unsubscribeStateChange?: () => void;
+  private elevatorLoopStopTimeout: number | undefined;
+
+  constructor(private readonly save: SaveSystem) {}
+
+  get levelCount(): number {
+    return CAMPAIGN.length;
   }
 
   get currentLevelIndex(): number {
-    return this.levelIndex;
+    return this._currentLevelIndex;
   }
-  get levelCount(): number {
-    return 1;
-  }
+
   get unlockedLevelIndex(): number {
-    return 0;
-  }
-  getLevelList(): LevelListEntry[] {
-    return [{ id: STUB_CHAMBER.id, name: STUB_CHAMBER.name, locked: false, completed: false }];
+    return Math.min(this.save.unlockedLevelIndex, this.levelCount - 1);
   }
 
   init(ctx: IGameContext): void {
     this.ctx = ctx;
+    this.unsubscribeCompletion = ctx.events.on('element:activated', ({ elementId }) => {
+      const exit = this.currentDefinition?.elements.find((e) => e.type === 'exit-elevator');
+      if (exit && exit.id === elementId) {
+        this.completeLevel();
+      }
+    });
+    this.unsubscribeStateChange = ctx.events.on('game:stateChanged', ({ to }) => {
+      if (to === 'menu') {
+        this.stopAllLoops();
+        this.clearElevatorStopTimeout();
+      }
+    });
   }
 
-  update(_dtSeconds: number): void {}
+  update(dtSeconds: number): void {
+    if (this.completed || !this.currentDefinition) return;
+    this.hintTimer += dtSeconds;
+    if (!this.hintShown && this.hintTimer >= CONFIG.levels.hintDelaySeconds) {
+      this.hintShown = true;
+      if (this.currentDefinition.hint) {
+        this.ctx.events.emit('ui:hint', { text: this.currentDefinition.hint });
+      }
+    }
+  }
 
   async loadLevel(levelIndex: number): Promise<void> {
-    this.levelIndex = levelIndex;
-    this.ctx.events.emit('level:loading', { levelIndex, definition: STUB_CHAMBER });
-    const scene = this.ctx.scene;
-    const ground = MeshBuilder.CreateGround('stubGround', { width: 20, height: 20 }, scene);
-    const material = new StandardMaterial('stubGroundMat', scene);
-    material.diffuseColor = new Color3(0.5, 0.5, 0.55);
-    ground.material = material;
-    this.ctx.systems.player.placeAt(STUB_CHAMBER.spawn);
-    this.ctx.events.emit('level:loaded', { levelIndex, definition: STUB_CHAMBER });
+    const index = Math.max(0, Math.min(this.levelCount - 1, levelIndex));
+    const def = CAMPAIGN[index];
+
+    this._currentLevelIndex = index;
+    this.currentDefinition = def;
+    this.completed = false;
+    this.hintShown = false;
+    this.hintTimer = 0;
+    this.clearIntroTimeouts();
+    this.clearElevatorStopTimeout();
+    this.stopAllLoops();
+
+    this.ctx.events.emit('level:loading', { levelIndex: index, definition: def });
+
+    this.ctx.systems.puzzle.clearChamber();
+    this.builder?.dispose();
+    this.builder = new ChamberBuilder(this.ctx);
+    this.builder.build(def);
+    this.ctx.systems.puzzle.buildChamber(def);
+
+    this.ctx.systems.player.placeAt(def.spawn);
+    this.ctx.systems.rendering.setMood(def.mood ?? 'clean');
+    this.ctx.systems.audio.setMusicState(index < 3 ? 'chamber-calm' : 'chamber-tense');
+
+    this.scheduleIntroLines(def);
+    this.trackLoop(this.ctx.systems.audio.startLoop(SOUND.ambientHum), SOUND.ambientHum);
+
+    this.ctx.events.emit('level:loaded', { levelIndex: index, definition: def });
   }
 
   async restartLevel(): Promise<void> {
-    await this.loadLevel(this.levelIndex);
+    await this.loadLevel(this._currentLevelIndex);
   }
 
-  dispose(): void {}
+  getLevelList(): LevelListEntry[] {
+    const unlocked = this.unlockedLevelIndex;
+    return CAMPAIGN.map((def, index) => ({
+      id: def.id,
+      name: def.name,
+      locked: index > unlocked,
+      completed: this.save.isCompleted(def.id),
+    }));
+  }
+
+  dispose(): void {
+    this.unsubscribeCompletion?.();
+    this.unsubscribeStateChange?.();
+    this.clearIntroTimeouts();
+    this.clearElevatorStopTimeout();
+    this.stopAllLoops();
+    this.builder?.dispose();
+  }
+
+  // -----------------------------------------------------------------------------
+
+  private completeLevel(): void {
+    if (this.completed || !this.currentDefinition) return;
+    this.completed = true;
+
+    const def = this.currentDefinition;
+    this.ctx.systems.audio.play(SOUND.chamberComplete);
+    this.stopLoopBySoundId(SOUND.ambientHum);
+    this.trackLoop(this.ctx.systems.audio.startLoop(SOUND.elevatorLoop), SOUND.elevatorLoop);
+    // Final chamber returns to menu without a loadLevel, so schedule the loop stop too.
+    this.elevatorLoopStopTimeout = window.setTimeout(() => {
+      this.stopLoopBySoundId(SOUND.elevatorLoop);
+    }, CONFIG.levels.elevatorRideSeconds * 1000);
+    this.ctx.systems.audio.setMusicState('chamber-complete');
+
+    this.ctx.events.emit('level:completed', {
+      levelIndex: this._currentLevelIndex,
+      levelId: def.id,
+      timeMs: 0,
+    });
+  }
+
+  private scheduleIntroLines(def: ChamberDefinition): void {
+    let delay = 0;
+    for (const line of def.introLines ?? []) {
+      const id = window.setTimeout(() => {
+        this.ctx.events.emit('ui:subtitle', { text: line, durationSeconds: 4, speaker: 'announcer' });
+      }, delay * 1000);
+      this.introTimeouts.push(id);
+      delay += INTRO_LINE_GAP_SECONDS;
+    }
+  }
+
+  private clearIntroTimeouts(): void {
+    for (const id of this.introTimeouts) {
+      window.clearTimeout(id);
+    }
+    this.introTimeouts.length = 0;
+  }
+
+  private clearElevatorStopTimeout(): void {
+    if (this.elevatorLoopStopTimeout !== undefined) {
+      window.clearTimeout(this.elevatorLoopStopTimeout);
+      this.elevatorLoopStopTimeout = undefined;
+    }
+  }
+
+  private trackLoop(loopId: string, soundId: string): void {
+    this.activeLoops.set(loopId, soundId);
+  }
+
+  private stopAllLoops(): void {
+    for (const loopId of this.activeLoops.keys()) {
+      this.ctx.systems.audio.stopLoop(loopId);
+    }
+    this.activeLoops.clear();
+  }
+
+  private stopLoopBySoundId(soundId: string): void {
+    for (const [loopId, id] of this.activeLoops) {
+      if (id === soundId) {
+        this.ctx.systems.audio.stopLoop(loopId);
+        this.activeLoops.delete(loopId);
+        return;
+      }
+    }
+  }
 }

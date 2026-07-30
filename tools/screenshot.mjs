@@ -19,7 +19,16 @@ import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// Prefer purpose-built headless shells over the system browser (which can
+// hang on profile/singleton issues). First existing candidate wins.
+const HOME = process.env.HOME ?? '';
+const CHROME_CANDIDATES = [
+  `${HOME}/Library/Caches/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell`,
+  `${HOME}/Library/Caches/ms-playwright/chromium-1223/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
+  `${HOME}/Library/Caches/ms-playwright/chromium-1200/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+];
+const CHROME = CHROME_CANDIDATES.find((p) => existsSync(p)) ?? CHROME_CANDIDATES[CHROME_CANDIDATES.length - 1];
 
 const args = process.argv.slice(2);
 function opt(name, fallback) {
@@ -86,6 +95,22 @@ function driver() {
     resume: () => systems.player.setActive(true),
     fire: (color) => systems.portals.fire(color),
     clearPortals: () => systems.portals.clearAll(),
+    /** Stand `dist` meters back from a placed portal and look at its center. */
+    lookAtPortal: (color, dist) => {
+      const handle = systems.portals.getPortal(color);
+      if (!handle) return false;
+      const p = handle.position;
+      const n = handle.normal;
+      const ex = p.x + n.x * dist;
+      const ey = p.y + n.y * dist;
+      const ez = p.z + n.z * dist;
+      // Yaw/pitch from the offset direction back toward the portal.
+      const dx = p.x - ex, dy = p.y - ey, dz = p.z - ez;
+      const yaw = (Math.atan2(dx, dz) * 180) / Math.PI;
+      const pitch = (Math.atan2(dy, Math.hypot(dx, dz)) * 180) / Math.PI;
+      window.__drive.setView(ex, ey, ez, yaw, pitch);
+      return true;
+    },
     fps: () => Math.round(1000 / Math.max(1, g.engine?.getDeltaTime?.() ?? 16)),
   };
 }
@@ -94,6 +119,7 @@ async function main() {
   mkdirSync(OUT_DIR, { recursive: true });
   await ensureServer();
 
+  console.log('[shoot] browser:', CHROME);
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: true,
@@ -103,6 +129,8 @@ async function main() {
       '--use-angle=swiftshader',
       '--hide-scrollbars',
       '--mute-audio',
+      '--no-first-run',
+      '--disable-extensions',
     ],
     defaultViewport: { width: WIDTH, height: HEIGHT },
   });
@@ -148,14 +176,30 @@ async function main() {
       await page.screenshot({ path: join(OUT_DIR, `chamber-${i}-reverse.png`) });
       await page.evaluate(() => window.__drive.resume());
 
-      // Shot C: portals open — fire both colors at the current aim, then look.
+      // Shot C: portal see-through — fire blue at the current wall, rotate
+      // ~180° and fire orange at the opposite wall, then look back at blue:
+      // the frame should show the room THROUGH the blue ellipse.
       await page.evaluate(() => {
+        const cam = window.__game.ctx.systems.player.camera;
+        const p = window.__game.ctx.systems.player.position;
+        const yaw = (cam.rotation.y * 180) / Math.PI;
+        window.__drive.setView(p.x, p.y, p.z, yaw, 0);
         window.__drive.fire('blue');
+        window.__drive.setView(p.x, p.y, p.z, yaw + 180, 0);
         window.__drive.fire('orange');
+        window.__drive.setView(p.x, p.y, p.z, yaw, 0);
       });
-      await sleep(600);
+      await sleep(800);
+      // Back off 4m from the blue portal and look at it: verifies the
+      // see-through RTT view (the room beyond should be visible INSIDE the
+      // ellipse, not a flat wall).
+      await page.evaluate(() => window.__drive.lookAtPortal('blue', 4));
+      await sleep(500);
       await page.screenshot({ path: join(OUT_DIR, `chamber-${i}-portals.png`) });
-      await page.evaluate(() => window.__drive.clearPortals());
+      await page.evaluate(() => {
+        window.__drive.clearPortals();
+        window.__drive.resume();
+      });
 
       const fps = await page.evaluate(() => window.__drive.fps());
       console.log(`[shoot] chamber ${i}: captured 3 shots (fps≈${fps} headless)`);
