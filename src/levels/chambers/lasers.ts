@@ -30,7 +30,7 @@ export const CHAMBER_LASERS: ChamberDefinition = {
     { id: 'glass-window', type: 'glass', position: V(3, 4.5, 0), size: { width: 2, height: 4 }, orientation: 'x' },
     { id: 'laser-receiver', type: 'laser-receiver', position: V(6, 5, 0), links: [{ targetId: 'exit-door' }] },
     { id: 'exit-door', type: 'door', position: V(0, 0, 5), orientation: 'x', startsOpen: false, require: 'all' },
-    { id: 'exit-elevator', type: 'exit-elevator', position: V(0, 0, 6) },
+    { id: 'exit-elevator', type: 'exit-elevator', position: V(0, 0, 6.2) },
   ],
   surfaceOverrides: [],
 };

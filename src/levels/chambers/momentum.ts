@@ -28,7 +28,7 @@ export const CHAMBER_MOMENTUM: ChamberDefinition = {
   elements: [
     { id: 'spawn-platform', type: 'platform', position: V(0, 6, -6), path: [V(0, 6, -6), V(0, 6, -6)], startsActive: true, speed: 0 },
     { id: 'pit-goo', type: 'goo', position: V(0, 0, 1), size: { width: 12, depth: 6 } },
-    { id: 'exit-elevator', type: 'exit-elevator', position: V(0, 0, 6) },
+    { id: 'exit-elevator', type: 'exit-elevator', position: V(0, 0, 8.2) },
   ],
   surfaceOverrides: [
     // North wall (z=+9): fully non-portalable.

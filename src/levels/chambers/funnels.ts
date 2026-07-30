@@ -29,7 +29,7 @@ export const CHAMBER_FUNNELS: ChamberDefinition = {
     { id: 'funnel', type: 'funnel', position: V(0, 1, -1), direction: V(0, 0, 1), length: 8, polarity: 'push', startsActive: true },
     { id: 'floor-button', type: 'button-floor', position: V(4, 0, 7), mode: 'latching', links: [{ targetId: 'exit-door' }] },
     { id: 'exit-door', type: 'door', position: V(0, 0, 8), orientation: 'x', startsOpen: false, require: 'all' },
-    { id: 'exit-elevator', type: 'exit-elevator', position: V(0, 0, 10) },
+    { id: 'exit-elevator', type: 'exit-elevator', position: V(0, 0, 10.2) },
   ],
   surfaceOverrides: [],
 };

@@ -72,10 +72,14 @@ export class PlayerSystem implements IPlayerSystem {
   private active = false;
   private grounded = false;
   private wasGrounded = false;
+  /** True from takeoff until the CC reports unsupported (or upward motion ends)
+   * — masks the phantom SUPPORTED state the CC returns while the capsule is
+   * still inside its support-snap distance right after a jump. */
+  private jumpAirborne = false;
   private crouched = false;
-  private eyeHeight = 0;
-  private standEyeHeight = 0;
-  private crouchEyeHeight = 0;
+  private eyeAboveCenter = 0;
+  private standEyeAboveCenter = 0;
+  private crouchEyeAboveCenter = 0;
   private readonly jump = new JumpController();
   private jumpPressed = false;
   private interactPressed = false;
@@ -133,13 +137,16 @@ export class PlayerSystem implements IPlayerSystem {
     this.settings = ctx.settings.settings;
     const cfg = ctx.config.player;
 
-    this.standEyeHeight = cfg.height - cfg.eyeOffsetFromTop;
-    this.crouchEyeHeight = cfg.crouchHeight - cfg.eyeOffsetFromTop;
-    this.eyeHeight = this.standEyeHeight;
+    // Eye offset above the capsule CENTER (controller.getPosition() returns
+    // the center): feet sit height/2 below the center, the eye sits
+    // eyeOffsetFromTop below the head top.
+    this.standEyeAboveCenter = cfg.height / 2 - cfg.eyeOffsetFromTop;
+    this.crouchEyeAboveCenter = cfg.crouchHeight / 2 - cfg.eyeOffsetFromTop;
+    this.eyeAboveCenter = this.standEyeAboveCenter;
     this.currentFovRadians = this.settings.fovDegrees * DEG2RAD;
     this.gravityVec.set(0, -cfg.gravity, 0);
 
-    this.cam = new UniversalCamera('playerCamera', new Vector3(0, this.standEyeHeight, 0), ctx.scene);
+    this.cam = new UniversalCamera('playerCamera', new Vector3(0, this.standEyeAboveCenter, 0), ctx.scene);
     this.cam.minZ = 0.05;
     this.cam.fov = this.currentFovRadians;
     ctx.scene.activeCamera = this.cam;
@@ -184,7 +191,13 @@ export class PlayerSystem implements IPlayerSystem {
 
     // --- support / grounded ---
     this.controller.checkSupportToRef(dtSeconds, this.downVector, this.surfaceInfo);
-    this.grounded = this.surfaceInfo.supportedState === CharacterSupportedState.SUPPORTED;
+    const supported = this.surfaceInfo.supportedState === CharacterSupportedState.SUPPORTED;
+    // The CC keeps reporting SUPPORTED for a frame or two after takeoff (the
+    // capsule is still inside its support-snap distance). Mask that phantom
+    // support, otherwise the landing logic below sees a fake air→ground
+    // transition and zeroes the jump velocity one frame after takeoff.
+    if (!supported || this.simVelocity.y <= 0) this.jumpAirborne = false;
+    this.grounded = supported && !this.jumpAirborne;
 
     // --- horizontal movement ---
     const forwardAxis = (this.input.isHeld('moveForward') ? 1 : 0) - (this.input.isHeld('moveBackward') ? 1 : 0);
@@ -211,6 +224,7 @@ export class PlayerSystem implements IPlayerSystem {
     if (jumped) {
       this.simVelocity.y = cfg.jumpVelocity;
       this.grounded = false;
+      this.jumpAirborne = true;
       this.ctx.systems.audio.play(SOUND.playerJump);
     }
     this.jumpPressed = false;
@@ -283,8 +297,8 @@ export class PlayerSystem implements IPlayerSystem {
         this.controller.setShapeOptions({ capsuleHeight: cfg.height, capsuleRadius: cfg.radius }, true);
       }
     }
-    const targetEye = this.crouched ? this.crouchEyeHeight : this.standEyeHeight;
-    this.eyeHeight = damp(this.eyeHeight, targetEye, EYE_DAMP_LAMBDA, dtSeconds);
+    const targetEye = this.crouched ? this.crouchEyeAboveCenter : this.standEyeAboveCenter;
+    this.eyeAboveCenter = damp(this.eyeAboveCenter, targetEye, EYE_DAMP_LAMBDA, dtSeconds);
   }
 
   private updateCamera(dtSeconds: number, sprinting: boolean): void {
@@ -321,7 +335,7 @@ export class PlayerSystem implements IPlayerSystem {
     const sin = Math.sin(this.yaw);
     this.camPos.set(
       pos.x + cos * this.bobVec.x,
-      pos.y + this.eyeHeight + this.bobVec.y - this.landDip,
+      pos.y + this.eyeAboveCenter + this.bobVec.y - this.landDip,
       pos.z - sin * this.bobVec.x,
     );
     this.cam.position.copyFrom(this.camPos);
@@ -484,6 +498,7 @@ export class PlayerSystem implements IPlayerSystem {
     this.controller.setPosition(this.scratchA);
     // Release any carried object; the portal system teleports it separately.
     this.dropCarried(false);
+    this.jumpAirborne = false; // support state is unknown on the far side
     this.wasGrounded = false; // re-arm landing detection on the far side
   }
 
@@ -501,6 +516,7 @@ export class PlayerSystem implements IPlayerSystem {
     this.yaw = spawn.yawDegrees * DEG2RAD;
     this.pitch = 0;
     this.jump.reset();
+    this.jumpAirborne = false;
     this.fellToDeath = false;
     this.dropCarried(false);
     this.wasGrounded = true;

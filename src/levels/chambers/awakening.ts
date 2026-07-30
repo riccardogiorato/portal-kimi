@@ -20,7 +20,9 @@ export const CHAMBER_AWAKENING: ChamberDefinition = {
   ],
   hint: 'Fire one portal on the near wall, one on the far side, then walk through.',
   elements: [
-    { id: 'exit-elevator', type: 'exit-elevator', position: V(0, 0, 5) },
+    // Off-center and flush with the north wall: the far-wall center stays
+    // clear for the tutorial's "shoot the far wall" portal.
+    { id: 'exit-elevator', type: 'exit-elevator', position: V(2.5, 0, 5.2) },
     { id: 'pit-goo', type: 'goo', position: V(0, 0, 0), size: { width: 10, depth: 8 } },
   ],
   surfaceOverrides: [],
