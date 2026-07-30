@@ -57,7 +57,8 @@ export class Game {
       powerPreference: 'high-performance',
     });
     this.scene = new Scene(this.engine);
-    this.scene.gravity = new Vector3(0, -CONFIG.physics.gravityY, 0);
+    // CONFIG.physics.gravityY is already signed (-19.6): game-tuned ~2x earth gravity.
+    this.scene.gravity = new Vector3(0, CONFIG.physics.gravityY, 0);
 
     this.input = new InputManager(this.canvas, this.events);
     this.input.attach();
