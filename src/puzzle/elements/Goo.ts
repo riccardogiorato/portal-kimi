@@ -53,6 +53,10 @@ export class Goo extends BasePuzzleElement<GooSpec> {
       size: new Vector3(width, 0.02, depth),
       position: this.node.position.clone().add(new Vector3(0, GOO_HEIGHT + 0.01, 0)),
     });
+    // The physics proxy is collision-only — hide it or it renders as a white
+    // material-less box floating over the goo surface.
+    const proxyMesh = this.ctx.systems.physics.getMeshForBody(this.body);
+    if (proxyMesh) proxyMesh.isVisible = false;
     this.trackBody(this.body);
 
     context.gooVolumes.push({

@@ -43,7 +43,8 @@ export class ExitElevator extends BasePuzzleElement<ExitElevatorSpec> {
       this.scene,
     );
     shell.position.y = ELEVATOR_SIZE.height / 2;
-    shell.material = this.ctx.systems.rendering.materials.wallPanel(false);
+    // Aperture elevator cabs are white-panelled, not black monoliths.
+    shell.material = this.ctx.systems.rendering.materials.wallPanel(true);
     this.track(shell);
 
     this.leftDoor = MeshBuilder.CreateBox(

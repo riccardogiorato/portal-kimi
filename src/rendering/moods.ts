@@ -57,13 +57,15 @@ export const MOOD_TARGETS: Record<ChamberMood, MoodTargets> = {
     flicker: 0.4,
   },
   dark: {
-    keyIntensity: 0.35,
+    // Emergency-lighting chamber: deep orange key pools, near-no fill, cold
+    // dark ambient. Must read as *dark* against clean chambers, not just dimmer.
+    keyIntensity: 0.12,
     keyColor: { r: 1.0, g: 0.5, b: 0.22 },
-    hemiIntensity: 0.3,
-    hemiSky: { r: 0.48, g: 0.28, b: 0.16 },
-    hemiGround: { r: 0.1, g: 0.06, b: 0.04 },
-    environmentIntensity: 0.5,
-    exposureMultiplier: 0.95,
+    hemiIntensity: 0.1,
+    hemiSky: { r: 0.3, g: 0.18, b: 0.12 },
+    hemiGround: { r: 0.05, g: 0.03, b: 0.02 },
+    environmentIntensity: 0.25,
+    exposureMultiplier: 0.85,
     clearColor: { r: 0.006, g: 0.005, b: 0.008 },
     flicker: 0,
   },

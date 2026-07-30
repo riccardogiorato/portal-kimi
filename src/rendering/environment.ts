@@ -22,6 +22,8 @@ const ENV_FACE_SIZE = 64;
 
 export class EnvironmentStack {
   private key!: DirectionalLight;
+  private fill!: DirectionalLight;
+  private fillB!: DirectionalLight;
   private hemi!: HemisphericLight;
   private shadowGen: ShadowGenerator | null = null;
   private envTexture: RawCubeTexture | null = null;
@@ -47,6 +49,22 @@ export class EnvironmentStack {
     this.key.intensity = this.live.keyIntensity;
     this.key.diffuse = new Color3(this.live.keyColor.r, this.live.keyColor.g, this.live.keyColor.b);
 
+    // Fill directionals from the two opposing quadrants (no shadows): chambers
+    // are enclosed, so walls facing away from the key would otherwise get only
+    // ambient and read as black curtains. Fill A covers -X/-Z-facing walls,
+    // fill B covers +X/-Z-facing walls; the key covers +Z and the floor.
+    // Portal 2's look is multi-directional soft area light — this approximates it.
+    this.fill = new DirectionalLight('render-fill', new Vector3(0.6, -0.55, 0.62).normalize(), this.scene);
+    this.fill.position = new Vector3(-12, 18, -10);
+    this.fill.intensity = this.live.keyIntensity * 0.55;
+    this.fill.diffuse = new Color3(this.live.keyColor.r * 0.92, this.live.keyColor.g * 0.95, this.live.keyColor.b);
+    this.fill.shadowEnabled = false;
+    this.fillB = new DirectionalLight('render-fill-b', new Vector3(-0.6, -0.55, 0.62).normalize(), this.scene);
+    this.fillB.position = new Vector3(12, 18, -10);
+    this.fillB.intensity = this.live.keyIntensity * 0.55;
+    this.fillB.diffuse = new Color3(this.live.keyColor.r * 0.92, this.live.keyColor.g * 0.95, this.live.keyColor.b);
+    this.fillB.shadowEnabled = false;
+
     // Hemispheric fill — sky/ground colors track the mood.
     this.hemi = new HemisphericLight('render-hemi', Vector3.Up(), this.scene);
     this.hemi.intensity = this.live.hemiIntensity;
@@ -57,6 +75,9 @@ export class EnvironmentStack {
     this.scene.environmentTexture = this.envTexture;
     this.scene.environmentIntensity = this.live.environmentIntensity;
     this.scene.clearColor = new Color4(this.live.clearColor.r, this.live.clearColor.g, this.live.clearColor.b, 1);
+    // Babylon's default scene ambient is BLACK, which nulls the ambient term
+    // on every material (hemi + IBL response dies with it). White restores it.
+    this.scene.ambientColor = new Color3(1, 1, 1);
   }
 
   /** Recreate/resize the shadow map for a quality tier; 0 disables shadows. */
@@ -99,6 +120,11 @@ export class EnvironmentStack {
     const flicker = flickerMultiplier(this.elapsedSeconds, this.live.flicker);
     this.key.intensity = this.live.keyIntensity * flicker;
     setColor3(this.key.diffuse, this.live.keyColor);
+    // Fills track the key (softer, no flicker so dropouts never black a room).
+    this.fill.intensity = this.live.keyIntensity * 0.55 * (0.8 + 0.2 * flicker);
+    setColor3(this.fill.diffuse, this.live.keyColor);
+    this.fillB.intensity = this.fill.intensity;
+    setColor3(this.fillB.diffuse, this.live.keyColor);
 
     // Fill flickers softer than the key so the room never goes fully black.
     this.hemi.intensity = this.live.hemiIntensity * (0.7 + 0.3 * flicker);
@@ -121,6 +147,8 @@ export class EnvironmentStack {
       env.dispose();
     }
     this.key.dispose();
+    this.fill.dispose();
+    this.fillB.dispose();
     this.hemi.dispose();
   }
 

@@ -103,8 +103,8 @@ describe('generators — plausible PBR values', () => {
   it('dark gunmetal wall is metallic; white wall is not', () => {
     const white = generateWallPanel(true, SIZE, 1);
     const dark = generateWallPanel(false, SIZE, 1);
-    // B channel = metallic. Dark wall ~0.85 metallic, white ~0.
-    expect(avgChannel(dark.metallicRoughness, 2)).toBeGreaterThan(180);
+    // B channel = metallic. Dark wall ~0.6 metallic (reads as metal, not void), white ~0.
+    expect(avgChannel(dark.metallicRoughness, 2)).toBeGreaterThan(120);
     expect(avgChannel(white.metallicRoughness, 2)).toBeLessThan(20);
   });
 

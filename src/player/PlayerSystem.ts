@@ -151,6 +151,12 @@ export class PlayerSystem implements IPlayerSystem {
     );
     this.controller.maxSlopeCosine = Math.cos(cfg.maxSlopeDegrees * DEG2RAD);
     this.controller.maxStepHeight = cfg.stepHeight;
+    // Portal shots and interact rays must not hit the player's own capsule.
+    // The controller's body is TS-private but runtime-accessible.
+    const ccBody = (this.controller as unknown as { _body?: import('@babylonjs/core/Physics/v2/physicsBody').PhysicsBody })._body;
+    if (ccBody) {
+      (ctx.systems.physics as { registerRaycastIgnore?: (b: typeof ccBody) => void }).registerRaycastIgnore?.(ccBody);
+    }
 
     this.unsubscribeSettings = ctx.events.on('settings:changed', ({ settings }) => {
       this.settings = settings;

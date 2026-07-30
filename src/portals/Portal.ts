@@ -108,6 +108,9 @@ export class Portal {
     );
     this.surfaceMaterial.setColor3('portalColor', tint);
     this.surfaceMaterial.setFloat('linked', 0);
+    // The disc must render from the room side regardless of winding — a
+    // culled portal surface reads as a black hole in the wall.
+    this.surfaceMaterial.backFaceCulling = false;
     this.surface.material = this.surfaceMaterial;
     this.surface.parent = this.root;
 

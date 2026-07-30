@@ -50,11 +50,18 @@ export class PuzzleMaterials {
     const size = 128;
     const texture = new DynamicTexture(name + '-tex', size, this.scene);
     const ctx = texture.getContext() as unknown as CanvasRenderingContext2D;
-    ctx.fillStyle = 'rgba(0,0,0,0)';
+    const cr = Math.floor(color.r * 255);
+    const cg = Math.floor(color.g * 255);
+    const cb = Math.floor(color.b * 255);
+    // Soft translucent body so the column reads as a volume…
+    ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, 0.16)`;
     ctx.fillRect(0, 0, size, size);
-    ctx.strokeStyle = `rgba(${Math.floor(color.r * 255)}, ${Math.floor(color.g * 255)}, ${Math.floor(color.b * 255)}, 0.45)`;
-    ctx.lineWidth = 2;
-    for (let i = 0; i <= size; i += 16) {
+    // …plus dense flow lines so the energy current is visible (additive
+    // blending washed these out to nothing over bright backgrounds).
+    for (let i = 0; i <= size; i += 8) {
+      const strong = i % 32 === 0;
+      ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${strong ? 0.75 : 0.35})`;
+      ctx.lineWidth = strong ? 2 : 1;
       ctx.beginPath();
       ctx.moveTo(0, i);
       ctx.lineTo(size, i);
@@ -69,11 +76,11 @@ export class PuzzleMaterials {
     const m = new StandardMaterial(name, this.scene);
     m.diffuseColor = Color3.Black();
     m.specularColor = Color3.Black();
-    m.emissiveColor = color;
+    m.emissiveColor = color.scale(1.5);
     m.emissiveTexture = texture;
     m.opacityTexture = texture;
-    m.alpha = 0.55;
-    m.alphaMode = 1;
+    m.alpha = 0.85;
+    m.alphaMode = 0; // ALPHA_COMBINE — visible over bright chambers
     this.ownedMaterials.push(m);
     return m;
   }
@@ -85,9 +92,11 @@ export class PuzzleMaterials {
     for (let y = 0; y < size; y += 4) {
       for (let x = 0; x < size; x += 4) {
         const noise = Math.random();
-        const r = 20 + Math.floor(noise * 60);
-        const g = 40 + Math.floor(noise * 120);
-        const b = 20 + Math.floor(noise * 40);
+        // Murky toxic liquid: dark swampy greens, not neon (Portal 2's goo is
+        // a murk with a subtle sickly shimmer, not a glow pool).
+        const r = 12 + Math.floor(noise * 30);
+        const g = 22 + Math.floor(noise * 62);
+        const b = 12 + Math.floor(noise * 26);
         ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.85)`;
         ctx.fillRect(x, y, 4, 4);
       }
@@ -99,11 +108,14 @@ export class PuzzleMaterials {
 
     const m = new StandardMaterial(name, this.scene);
     m.diffuseColor = GOO_DARK;
-    m.emissiveColor = new Color3(0.1, 0.5, 0.1);
+    m.emissiveColor = new Color3(0.04, 0.22, 0.05);
     m.emissiveTexture = texture;
     m.specularColor = Color3.White();
-    m.alpha = 0.92;
-    m.alphaMode = 1;
+    m.specularPower = 32;
+    // Opaque deadly pool: additive blending washed out to invisibility over
+    // the bright floor, so the pit read as solid ground (lethal surprise).
+    m.alpha = 1;
+    m.alphaMode = 0; // ALPHA_COMBINE — standard blending, fully opaque
     this.ownedMaterials.push(m);
     return m;
   }

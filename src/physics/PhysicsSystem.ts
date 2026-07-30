@@ -88,11 +88,26 @@ export class PhysicsSystem implements IPhysicsSystem {
   // Raycast
   // -------------------------------------------------------------------------
 
+  /**
+   * Bodies excluded from every raycast (e.g. the player's character
+   * controller — without this, portal shots and interact rays hit the
+   * player's own capsule before reaching the world).
+   */
+  private readonly raycastIgnored = new Set<PhysicsBody>();
+
+  /** Exclude a body from ALL raycasts (idempotent). */
+  registerRaycastIgnore(body: PhysicsBody): void {
+    this.raycastIgnored.add(body);
+  }
+
   raycast(origin: Vector3, direction: Vector3, maxDistance: number): PhysicsHit | null {
     if (!this.plugin) return null;
     direction.scaleToRef(maxDistance, this.rayEnd);
     this.rayEnd.addInPlace(origin);
-    this.plugin.raycast(origin, this.rayEnd, this.rayResult);
+    // Havok takes one ignoreBody per query; the character controller is the
+    // critical exclusion. (A multi-ignore would need sequential re-casts.)
+    const ignoreBody = this.raycastIgnored.values().next().value;
+    this.plugin.raycast(origin, this.rayEnd, this.rayResult, ignoreBody ? { ignoreBody } : undefined);
     if (!this.rayResult.hasHit) return null;
     const body = this.rayResult.body;
     // The result object is reused next call — clone the data out.
@@ -120,6 +135,11 @@ export class PhysicsSystem implements IPhysicsSystem {
     mesh.scaling.set(options.size.x, options.size.y, options.size.z);
     mesh.position.copyFrom(options.position);
     if (options.rotation) mesh.rotationQuaternion = options.rotation.clone();
+    // A static box without a caller-provided mesh is collision-only
+    // infrastructure: default to invisible (callers with their own visuals
+    // were leaking white material-less proxies — the goo-pool bug). Callers
+    // that want it visible can set isVisible = true via getMeshForBody.
+    mesh.isVisible = false;
     const aggregate = new PhysicsAggregate(
       mesh,
       PhysicsShapeType.BOX,

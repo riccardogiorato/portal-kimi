@@ -226,7 +226,10 @@ export function generateWallPanel(portalable: boolean, size: number, seed: numbe
     addMicroScratches(ctx, Math.round(size / 14), -10);
     addCornerGrime(ctx, seed, 0.5);
   } else {
-    basePaint(ctx, { r: 0.165, g: 0.175, b: 0.195 }, 0.85, 0.45, 0.85, seed);
+    // Dark gunmetal: metallic 0.6 (not the spec-max 0.85) so the panels keep
+    // enough diffuse response to READ as dark metal instead of void-black in
+    // ambient-only areas; albedo lifted to match.
+    basePaint(ctx, { r: 0.21, g: 0.22, b: 0.24 }, 0.85, 0.45, 0.6, seed);
     addBrushedStreaks(ctx, seed + 5, 38, 0.08);
     paintSeam(ctx, 0.05, 0.3, 0.2);
     addMicroScratches(ctx, Math.round(size / 20), 8);

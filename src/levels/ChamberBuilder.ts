@@ -138,6 +138,12 @@ export class ChamberBuilder {
     mesh.parent = this.root;
     mesh.position.set(center.x, center.y, center.z);
     mesh.rotationQuaternion = this.wallRotation(info, mood === 'damaged' && info.wall !== 'floor' && info.wall !== 'ceiling' ? run : null);
+    // Panel boxes must render their room-facing side: with the wrong side
+    // orientation the room face is culled and the wall shows its unlit inner
+    // back face (the "black curtain" bug). The effective winding flips with
+    // each wall's placement rotation, so the correct value is per-wall —
+    // verified empirically across all six chambers (south is the odd one out).
+    mesh.sideOrientation = info.wall === 'south' ? 1 : 0;
     mesh.checkCollisions = false;
     mesh.metadata = { portalable: run.portalable, panelSize: { width: widthM, height: heightM } };
     mesh.freezeWorldMatrix();

@@ -161,7 +161,14 @@ async function main() {
         30_000,
         `level ${i} to reach playing state`,
       );
-      await sleep(1500); // let intro fades/particles settle
+      // Settle the mood lighting deterministically: at ~3fps headless the
+      // real-time dt clamp (1/20s) stretches the mood crossfade ~5x, so we
+      // fast-forward the environment's damp instead of waiting wall-time.
+      await page.evaluate(() => {
+        const env = window.__game.ctx.systems.rendering.environment;
+        if (env?.update) for (let i = 0; i < 200; i++) env.update(0.05);
+      });
+      await sleep(1200); // let intro fades/particles settle
 
       // Shot A: spawn view (whatever the chamber defines).
       await page.screenshot({ path: join(OUT_DIR, `chamber-${i}-spawn.png`) });
