@@ -80,6 +80,14 @@ export class ChamberBuilder {
     const entryWall = nearestWall(definition.spawn.position, size, this.panelSize);
     this.buildAirlockFrame(entryWall, definition.spawn.position);
 
+    // Door elements gate the exit: wall off the doorway plane so the door is
+    // the only way through (otherwise the "puzzle" is walk-around-able).
+    for (const element of elements) {
+      if (element.type === 'door') {
+        this.buildDivider(element, definition);
+      }
+    }
+
     const elevator = elements.find((e) => e.type === 'exit-elevator');
     if (elevator) {
       const exitWall = nearestWall(elevator.position, size, this.panelSize);
@@ -216,6 +224,90 @@ export class ChamberBuilder {
     mesh.position.addInPlace(offset);
     mesh.unfreezeWorldMatrix();
     mesh.freezeWorldMatrix();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Door divider wall
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Full-span interior wall at the door's plane with a doorway gap. Both
+   * faces are room-facing, so panels render double-sided (the shell's
+   * single-sided per-wall winding would black-curtain the back).
+   */
+  private buildDivider(
+    door: Extract<ChamberDefinition['elements'][number], { type: 'door' }>,
+    definition: ChamberDefinition,
+  ): void {
+    const { size } = definition;
+    const doorSize = this.ctx.config.puzzle.doorSize;
+    const gapHalf = doorSize.width / 2 + 0.08; // doorway + the door's frame posts
+    const H = size.height;
+    const T = this.panelThickness;
+    const dp = door.position;
+
+    // Runs are axis-aligned boxes: [center, width] along the wall's long axis.
+    const runs: Array<{ center: number; width: number; y: number; height: number }> = [];
+    if (door.orientation === 'x') {
+      const half = size.width / 2;
+      const leftW = dp.x - gapHalf - -half;
+      const rightW = half - (dp.x + gapHalf);
+      if (leftW > 0.01) runs.push({ center: -half + leftW / 2, width: leftW, y: H / 2, height: H });
+      if (rightW > 0.01) runs.push({ center: dp.x + gapHalf + rightW / 2, width: rightW, y: H / 2, height: H });
+      const lintelH = H - doorSize.height;
+      if (lintelH > 0.01) {
+        runs.push({ center: dp.x, width: doorSize.width + 0.16, y: doorSize.height + lintelH / 2, height: lintelH });
+      }
+    } else {
+      const half = size.depth / 2;
+      const nearW = dp.z - gapHalf - -half;
+      const farW = half - (dp.z + gapHalf);
+      if (nearW > 0.01) runs.push({ center: -half + nearW / 2, width: nearW, y: H / 2, height: H });
+      if (farW > 0.01) runs.push({ center: dp.z + gapHalf + farW / 2, width: farW, y: H / 2, height: H });
+      const lintelH = H - doorSize.height;
+      if (lintelH > 0.01) {
+        runs.push({ center: dp.z, width: doorSize.width + 0.16, y: doorSize.height + lintelH / 2, height: lintelH });
+      }
+    }
+
+    const material = this.ctx.systems.rendering.materials.wallPanel(true);
+    for (const run of runs) {
+      const alongX = door.orientation === 'x';
+      const mesh = MeshBuilder.CreateBox(
+        `divider-${door.id}-${run.center.toFixed(2)}-${run.y.toFixed(2)}`,
+        alongX
+          ? { width: run.width, height: run.height, depth: T }
+          : { width: T, height: run.height, depth: run.width },
+        this.scene,
+      );
+      mesh.material = material;
+      mesh.parent = this.root;
+      mesh.position.set(
+        alongX ? run.center : dp.x,
+        run.y,
+        alongX ? dp.z : run.center,
+      );
+      mesh.sideOrientation = Mesh.DOUBLESIDE;
+      mesh.checkCollisions = false;
+      mesh.metadata = { portalable: true, panelSize: { width: run.width, height: run.height } };
+      mesh.freezeWorldMatrix();
+
+      const handle = this.ctx.systems.physics.createStaticBox({
+        id: `divider-body-${door.id}-${run.center.toFixed(2)}-${run.y.toFixed(2)}`,
+        size: new Vector3(
+          alongX ? run.width : T,
+          run.height,
+          alongX ? T : run.width,
+        ),
+        position: new Vector3(alongX ? run.center : dp.x, run.y, alongX ? dp.z : run.center),
+      });
+      this.proxyHandles.push(handle);
+      const proxy = this.ctx.systems.physics.getMeshForBody(handle);
+      if (proxy) {
+        proxy.isVisible = false;
+        proxy.metadata = { portalable: true, panelSize: { width: run.width, height: run.height } };
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------

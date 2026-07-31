@@ -8,7 +8,6 @@ import { CONFIG } from '../../core/Config';
 import { SOUND } from '../../core/soundIds';
 import { BasePuzzleElement } from '../PuzzleElement';
 import { PuzzleMaterials } from '../materials';
-import { pointInAABB } from '../contacts';
 import type { PuzzleContext } from '../types';
 
 const GOO_HEIGHT = 0.15;
@@ -50,8 +49,10 @@ export class Goo extends BasePuzzleElement<GooSpec> {
 
     this.body = this.ctx.systems.physics.createStaticBox({
       id: `goo-body-${id}`,
-      size: new Vector3(width, 0.02, depth),
-      position: this.node.position.clone().add(new Vector3(0, GOO_HEIGHT + 0.01, 0)),
+      // 0.3 thick, top flush with the visual surface: a 0.02 slab let bodies
+      // tunnel through when they spawned intersecting it (fall-through death).
+      size: new Vector3(width, 0.3, depth),
+      position: this.node.position.clone().add(new Vector3(0, GOO_HEIGHT + 0.01 - 0.15, 0)),
     });
     // The physics proxy is collision-only — hide it or it renders as a white
     // material-less box floating over the goo surface.
@@ -65,8 +66,14 @@ export class Goo extends BasePuzzleElement<GooSpec> {
     });
   }
 
+  private readonly feetPoint = Vector3.Zero();
+
   update(_dtSeconds: number): void {
-    if (this.contains(this.ctx.systems.player.position)) {
+    // Test the capsule FEET, not the center: the center floats ~1m above the
+    // surface, so a center-based test never fired for a wading player.
+    const pos = this.ctx.systems.player.position;
+    this.feetPoint.set(pos.x, pos.y - this.ctx.config.player.height / 2, pos.z);
+    if (this.contains(this.feetPoint)) {
       this.ctx.events.emit('player:died', { cause: 'goo' });
       this.ctx.systems.audio.playAt(SOUND.gooDeath, this.node.position);
     }
@@ -78,16 +85,18 @@ export class Goo extends BasePuzzleElement<GooSpec> {
     super.dispose();
   }
 
+  /**
+   * Kill-line test: inside the footprint AND below the surface + kill depth.
+   * No lower bound — anything under the surface within the footprint is dead.
+   * The line sits above the solid proxy top (0.17) so a body resting on the
+   * goo still dies/fizzles; a jump arc over the pit (feet ≳ 0.8) clears it.
+   */
   contains(point: Vector3): boolean {
-    const halfY = (GOO_HEIGHT + CONFIG.puzzle.gooKillDepth) / 2;
-    return pointInAABB(
-      { x: point.x, y: point.y, z: point.z },
-      { x: this.node.position.x, y: this.node.position.y + GOO_HEIGHT - halfY, z: this.node.position.z },
-      {
-        x: this.spec.size.width / 2,
-        y: halfY,
-        z: this.spec.size.depth / 2,
-      },
+    const killLine = this.node.position.y + GOO_HEIGHT + CONFIG.puzzle.gooKillDepth;
+    return (
+      point.y < killLine &&
+      Math.abs(point.x - this.node.position.x) <= this.spec.size.width / 2 &&
+      Math.abs(point.z - this.node.position.z) <= this.spec.size.depth / 2
     );
   }
 }

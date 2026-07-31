@@ -9,7 +9,7 @@
  * portal B. The same matrix drives the virtual RTT camera, player
  * teleportation and object teleportation, so it is defined exactly once here.
  */
-import { Matrix, Quaternion, Vector3 } from '@babylonjs/core';
+import { Matrix, Quaternion, Vector3, Vector4 } from '@babylonjs/core';
 
 /** A portal's world placement: position on the wall, normal pointing OUT of the wall. */
 export interface PortalFrame {
@@ -60,6 +60,7 @@ export function portalPairTransform(source: PortalFrame, target: PortalFrame): M
 const scratchSourceWorld = Matrix.Identity();
 const scratchTargetWorld = Matrix.Identity();
 const scratchSourceInverse = Matrix.Identity();
+const scratchPairStage = Matrix.Identity();
 const scratchZAxis = Vector3.Zero();
 const scratchXAxis = Vector3.Zero();
 const scratchYAxis = Vector3.Zero();
@@ -93,8 +94,10 @@ export function portalPairTransformToRef(source: PortalFrame, target: PortalFram
   portalFrameToMatrixToRef(source, scratchSourceWorld);
   portalFrameToMatrixToRef(target, scratchTargetWorld);
   scratchSourceWorld.invertToRef(scratchSourceInverse);
-  scratchSourceInverse.multiplyToRef(FLIP_Y_PI, out);
-  out.multiplyInPlace(scratchTargetWorld);
+  // Matrix.multiplyInPlace is a COMPONENT-WISE (Hadamard) product in Babylon,
+  // not a matrix product — chaining through a staging scratch instead.
+  scratchSourceInverse.multiplyToRef(FLIP_Y_PI, scratchPairStage);
+  scratchPairStage.multiplyToRef(scratchTargetWorld, out);
 }
 
 /** Rotate a direction/velocity vector by a portal pair transform. */
@@ -149,47 +152,65 @@ export function crossedPortalThisFrame(
 }
 
 /**
- * Oblique near-plane clipping (Terdiman / Lengyel). Rewrites `projection` so
- * the near plane becomes `clipPlane` (in view space). Geometry behind the
- * exit portal is clipped away instead of leaking into the RTT.
+ * Oblique near-plane clipping (Lengyel's trick, derived for row-major D3D).
+ * Rewrites `projection` so the near plane becomes `clipPlane` (in view space,
+ * camera on the plane's negative side). Geometry behind the exit portal is
+ * clipped away instead of leaking into the RTT.
+ *
+ * Lengyel replaces the clip-z producer of the matrix. In row-major Babylon
+ * (clip = p·M) that is the third COLUMN (m[2], m[6], m[10], m[14]) — NOT the
+ * third row; rewriting m[8..11] clobbers the w column and blacks the view.
+ * clip.z := α·(C·p) with α = Q_z/(C·Q), Q = the view-space far-frustum corner
+ * farthest along the plane normal. clip.w stays z_view (positive in front).
  */
 export function makeObliqueProjection(projection: Matrix, clipPlane: { x: number; y: number; z: number; w: number }): Matrix {
-  const m = projection.m;
-  const q = {
-    x: (Math.sign(clipPlane.x) + m[8]) / m[0],
-    y: (Math.sign(clipPlane.y) + m[9]) / m[5],
-    z: -1.0,
-    w: (1.0 + m[10]) / m[14],
-  };
-  const dot = clipPlane.x * q.x + clipPlane.y * q.y + clipPlane.z * q.z + clipPlane.w * q.w;
-  const scale = 2.0 / dot;
-  // Matrix.m is immutable in Babylon 9: rebuild with the THIRD ROW replaced
-  // (Babylon stores row-major: m[8..11] is the row the oblique trick rewrites).
-  return Matrix.FromValues(
-    m[0], m[1], m[2], m[3],
-    m[4], m[5], m[6], m[7],
-    clipPlane.x * scale, clipPlane.y * scale, clipPlane.z * scale + 1.0, clipPlane.w * scale,
-    m[12], m[13], m[14], m[15],
-  );
+  const out = Matrix.Identity();
+  makeObliqueProjectionToRef(projection, clipPlane, out);
+  return out;
 }
 
-/** Allocation-free variant of makeObliqueProjection (per-frame RTT path). */
+const scratchProjInv = Matrix.Identity();
+const scratchCornerNdc = Vector3.Zero();
+const scratchCorner = new Vector4(0, 0, 0, 0);
+
+/** Allocation-free variant (per-frame RTT path). */
 export function makeObliqueProjectionToRef(
   projection: Matrix,
   clipPlane: { x: number; y: number; z: number; w: number },
   out: Matrix,
 ): void {
   const m = projection.m;
-  const qx = (Math.sign(clipPlane.x) + m[8]) / m[0];
-  const qy = (Math.sign(clipPlane.y) + m[9]) / m[5];
-  const qw = (1.0 + m[10]) / m[14];
-  const dot = clipPlane.x * qx + clipPlane.y * qy + clipPlane.z * -1.0 + clipPlane.w * qw;
-  const scale = 2.0 / dot;
+  // Unproject the far-frustum corner farthest along the clip-plane normal:
+  // NDC (sign(Cx), sign(Cy), 1) → homogeneous view space (the w cancels in α).
+  projection.invertToRef(scratchProjInv);
+  scratchCornerNdc.set(
+    clipPlane.x >= 0 ? 1 : -1,
+    clipPlane.y >= 0 ? 1 : -1,
+    1,
+  );
+  Vector4.TransformCoordinatesToRef(scratchCornerNdc, scratchProjInv, scratchCorner);
+  const dot =
+    clipPlane.x * scratchCorner.x +
+    clipPlane.y * scratchCorner.y +
+    clipPlane.z * scratchCorner.z +
+    clipPlane.w * scratchCorner.w;
+  if (dot <= 1e-6 || scratchCorner.z <= 0) {
+    // Degenerate plane (facing away from the frustum): keep the plain projection.
+    Matrix.FromValuesToRef(
+      m[0], m[1], m[2], m[3],
+      m[4], m[5], m[6], m[7],
+      m[8], m[9], m[10], m[11],
+      m[12], m[13], m[14], m[15],
+      out,
+    );
+    return;
+  }
+  const alpha = scratchCorner.z / dot;
   Matrix.FromValuesToRef(
-    m[0], m[1], m[2], m[3],
-    m[4], m[5], m[6], m[7],
-    clipPlane.x * scale, clipPlane.y * scale, clipPlane.z * scale + 1.0, clipPlane.w * scale,
-    m[12], m[13], m[14], m[15],
+    m[0], m[1], clipPlane.x * alpha, m[3],
+    m[4], m[5], clipPlane.y * alpha, m[7],
+    m[8], m[9], clipPlane.z * alpha, m[11],
+    m[12], m[13], clipPlane.w * alpha, m[15],
     out,
   );
 }

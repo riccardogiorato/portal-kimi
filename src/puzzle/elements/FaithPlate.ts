@@ -100,15 +100,19 @@ export class FaithPlate extends BasePuzzleElement<FaithPlateSpec> {
     const center = this.node.position;
     this.scratchTriggerCenter.set(center.x, center.y + TRIGGER_Y_OFFSET, center.z);
 
+    // player.position is the capsule CENTER — test the FEET against the plate
+    // (a standing player's center floats ~0.9 above the trigger band).
     const player = this.ctx.systems.player.position;
-    if (this.inTriggerVolume(player, CONFIG.player.radius)) {
+    const playerFeet = player.y - CONFIG.player.height / 2;
+    if (this.inTriggerVolume(player, playerFeet, CONFIG.player.radius)) {
       this.launchPlayer();
     }
 
     const physics = this.ctx.systems.physics;
+    const cubeHalf = CONFIG.physics.cubeSize / 2;
     for (const t of physics.getTeleportables()) {
       physics.getBodyPositionToRef(t.handle, this.scratchBodyPos);
-      if (this.inTriggerVolume(this.scratchBodyPos, t.radius)) {
+      if (this.inTriggerVolume(this.scratchBodyPos, this.scratchBodyPos.y - cubeHalf, t.radius)) {
         this.launchBody(t.handle);
       }
     }
@@ -120,8 +124,9 @@ export class FaithPlate extends BasePuzzleElement<FaithPlateSpec> {
     }
   }
 
-  private inTriggerVolume(point: Vector3, radius: number): boolean {
-    if (Math.abs(point.y - this.scratchTriggerCenter.y) > TRIGGER_HEIGHT_TOLERANCE) {
+  private inTriggerVolume(point: Vector3, bottomY: number, radius: number): boolean {
+    // The plate body top sits at node.y + 0.1; the trigger band wraps it.
+    if (Math.abs(bottomY - (this.node.position.y + 0.1)) > TRIGGER_HEIGHT_TOLERANCE) {
       return false;
     }
     return circleIntersectsRectangle(

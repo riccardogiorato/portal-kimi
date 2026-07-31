@@ -236,12 +236,13 @@ export class Portal {
     this.virtualCamera.maxZ = mainCamera.maxZ;
 
     // Oblique near-plane on the EXIT portal's plane: clip everything behind
-    // the exit wall. Plane normal points back toward the virtual camera
-    // (-linked normal); if the exit wall ever leaks on screen, flip this sign.
+    // the exit wall. Lengyel's trick requires the camera on the NEGATIVE side
+    // of the clip plane, so the plane normal is the exit portal's own normal
+    // (pointing into the room, away from the virtual camera behind the wall).
     // View-space plane computed with scratch vectors (no Plane.transform alloc):
     // n_view = R_view · n_world; d_view = -(n_view · p_view).
     const viewMatrix = this.virtualCamera.getViewMatrix();
-    this.scratchPlaneNormal.copyFrom(linkedFrame.normal).scaleInPlace(-1);
+    this.scratchPlaneNormal.copyFrom(linkedFrame.normal);
     Vector3.TransformNormalToRef(this.scratchPlaneNormal, viewMatrix, this.scratchPlaneNormal);
     Vector3.TransformCoordinatesToRef(linkedFrame.position, viewMatrix, this.scratchPlanePoint);
     const dView = -Vector3.Dot(this.scratchPlaneNormal, this.scratchPlanePoint);

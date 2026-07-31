@@ -14,7 +14,6 @@ import type { PuzzleContext } from '../types';
 import { withToRef } from '../physicsToRef';
 
 const OBSTRUCTION_CHECK_RADIUS = 0.7;
-const OPEN_OFFSET = 0.72;
 const OBSTRUCTION_HEIGHT = 1.1;
 
 type DoorSpec = Extract<PuzzleElementSpec, { type: 'door' }>;
@@ -44,14 +43,28 @@ export class Door extends BasePuzzleElement<DoorSpec> {
 
     const { width, height, thickness } = CONFIG.puzzle.doorSize;
 
-    const frame = MeshBuilder.CreateBox(
-      `door-${id}-frame`,
-      { width: width + 0.16, height: height + 0.08, depth: thickness + 0.08 },
+    // Frame = two posts + a lintel. A single solid box here filled the entire
+    // opening, so an "open" door still read (and screenshotted) as a wall.
+    const frameMaterial = this.ctx.systems.rendering.materials.trimMetal();
+    const postW = 0.08;
+    for (const side of [-1, 1]) {
+      const post = MeshBuilder.CreateBox(
+        `door-${id}-frame-${side < 0 ? 'left' : 'right'}`,
+        { width: postW, height: height + 0.08, depth: thickness + 0.08 },
+        this.scene,
+      );
+      post.position.set(side * (width / 2 + postW / 2), height / 2, 0);
+      post.material = frameMaterial;
+      this.track(post);
+    }
+    const lintel = MeshBuilder.CreateBox(
+      `door-${id}-frame-top`,
+      { width: width + postW * 2, height: 0.08, depth: thickness + 0.08 },
       this.scene,
     );
-    frame.position.y = height / 2;
-    frame.material = this.ctx.systems.rendering.materials.trimMetal();
-    this.track(frame);
+    lintel.position.set(0, height + 0.04, 0);
+    lintel.material = frameMaterial;
+    this.track(lintel);
 
     const panelW = width / 2 - 0.02;
     const panelH = height - 0.04;
@@ -129,13 +142,18 @@ export class Door extends BasePuzzleElement<DoorSpec> {
   }
 
   private updatePanelPositions(openRatio: number): void {
-    const offset = openRatio * OPEN_OFFSET;
+    // Closed: panels meet at the doorway center (±panelW/2). Open: each panel
+    // slides its full width into the divider wall (pocket-door) so the doorway
+    // clears completely. (The old 0→0.72 travel stacked both panels at x=0
+    // when closed and left a 0.76m slit when "open".)
+    const panelW = CONFIG.puzzle.doorSize.width / 2 - 0.02;
+    const x = panelW / 2 + openRatio * panelW;
     if (this.orientation === 'x') {
-      this.leftPanel.position.x = -offset;
-      this.rightPanel.position.x = offset;
+      this.leftPanel.position.x = -x;
+      this.rightPanel.position.x = x;
     } else {
-      this.leftPanel.position.z = -offset;
-      this.rightPanel.position.z = offset;
+      this.leftPanel.position.z = -x;
+      this.rightPanel.position.z = x;
     }
   }
 

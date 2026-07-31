@@ -11,7 +11,6 @@ import { Color3, Matrix, Quaternion, Vector3 } from '@babylonjs/core';
 import type { AbstractMesh } from '@babylonjs/core';
 import { CONFIG } from '../core/Config';
 import {
-  crossedPortalThisFrameFast,
   isWithinPortalBoundsFast,
   portalPairTransformToRef,
   signedDistanceToPortalPlaneFast,
@@ -42,6 +41,13 @@ const MAX_RAY_HOPS = 2;
 const PLAYER_ENTITY_ID = 'player';
 /** |normal.y| above this → floor/ceiling-like surface (free portal orientation). */
 const FLOOR_NORMAL_Y = 0.7;
+/**
+ * Extra distance beyond the capsule/body radius that still counts as
+ * "touching" the portal plane. Covers the physics skin width: a capsule
+ * pressed against a wall rests with its center ~radius+0.03 from the wall
+ * face, so a center-PLANE crossing test can never fire for wall portals.
+ */
+const TOUCH_MARGIN = 0.08;
 
 const PLACEMENT_RULES: PlacementRules = {
   minSurfaceWidth: CONFIG.portals.minSurfaceWidth,
@@ -81,6 +87,7 @@ export class PortalSystem implements IPortalSystem {
   private readonly scratchBodyPos = Vector3.Zero();
   private readonly scratchBodyVel = Vector3.Zero();
   private readonly scratchBodyWorld = Matrix.Identity();
+  private readonly scratchBodyResult = Matrix.Identity();
   private readonly scratchQuat = Quaternion.Identity();
   private readonly scratchScale = Vector3.One();
 
@@ -274,11 +281,20 @@ export class PortalSystem implements IPortalSystem {
     }
 
     // --- Player crossing ---
+    // Capsule-touch test: the capsule center can never REACH a wall portal's
+    // plane (the wall stops it radius+skin short), so a center-crossing test
+    // only ever worked for floor portals. Trigger when the capsule surface
+    // touches the plane from the front side within the ellipse bounds.
     const playerPos = player.position;
+    const playerTouch = CONFIG.player.radius + TOUCH_MARGIN;
     for (const [portal, linked] of this.pairs) {
       const frame = portal.portalFrame!;
+      const dCur = signedDistanceToPortalPlaneFast(playerPos, frame);
+      const dPrev = signedDistanceToPortalPlaneFast(this.prevPlayerPos, frame);
       if (
-        crossedPortalThisFrameFast(this.prevPlayerPos, playerPos, frame, CONFIG.portals.width / 2, CONFIG.portals.height / 2) &&
+        dPrev > 0 &&
+        dCur <= playerTouch &&
+        isWithinPortalBoundsFast(playerPos, frame, CONFIG.portals.width / 2, CONFIG.portals.height / 2) &&
         this.teleportCooldowns.canTeleport(PLAYER_ENTITY_ID, this.elapsedSeconds)
       ) {
         portalPairTransformToRef(frame, linked.portalFrame!, this.scratchPair);
@@ -310,18 +326,31 @@ export class PortalSystem implements IPortalSystem {
 
       for (const [portal, linked] of this.pairs) {
         const frame = portal.portalFrame!;
+        // Same capsule-touch model as the player: bodies pressed against a
+        // wall portal never get their center across the plane.
+        const dCur = signedDistanceToPortalPlaneFast(this.scratchBodyPos, frame);
+        const dPrev = signedDistanceToPortalPlaneFast(prev, frame);
         if (
-          !crossedPortalThisFrameFast(prev, this.scratchBodyPos, frame, CONFIG.portals.width / 2, CONFIG.portals.height / 2) ||
+          dPrev <= 0 ||
+          dCur > info.radius + TOUCH_MARGIN ||
+          !isWithinPortalBoundsFast(this.scratchBodyPos, frame, CONFIG.portals.width / 2, CONFIG.portals.height / 2) ||
           !this.teleportCooldowns.canTeleport(info.id, this.elapsedSeconds)
         ) {
           continue;
         }
         portalPairTransformToRef(frame, linked.portalFrame!, this.scratchPair);
-        // Pose: body world × pair, decomposed.
+        // Pose: body world × pair, decomposed. (multiplyInPlace is Hadamard
+        // in Babylon — multiplyToRef is the real matrix product.)
         const quat = physics.getBodyQuaternion(info.handle);
         Matrix.ComposeToRef(this.scratchScale, quat, this.scratchBodyPos, this.scratchBodyWorld);
-        this.scratchBodyWorld.multiplyInPlace(this.scratchPair);
-        this.scratchBodyWorld.decompose(undefined, this.scratchQuat, this.scratchBodyPos);
+        this.scratchBodyWorld.multiplyToRef(this.scratchPair, this.scratchBodyResult);
+        this.scratchBodyResult.decompose(undefined, this.scratchQuat, this.scratchBodyPos);
+        // The pair maps front-of-source to BEHIND-target: a body that touched
+        // the entry plane (dCur ≤ radius) would materialize inside the exit
+        // wall. Nudge it back out along the exit normal (same role as the
+        // player's exitNudge, but depth-aware).
+        linked.portalFrame!.normal.scaleToRef(Math.max(0, dCur) + 0.06, this.scratchUp);
+        this.scratchBodyPos.addInPlace(this.scratchUp);
         physics.teleportBody(info.handle, this.scratchBodyPos, this.scratchQuat);
         // Momentum: rotate the velocity through the pair.
         if (physics.getLinearVelocityToRef(info.handle, this.scratchBodyVel)) {

@@ -26,9 +26,11 @@ export const CHAMBER_LASERS: ChamberDefinition = {
   hint: 'Portals can carry more than test subjects. Put one where the beam hits the wall, and one on the west wall at beam height.',
   elements: [
     { id: 'laser-emitter', type: 'laser-emitter', position: V(-5, 5, -6), direction: V(0, 0, 1) },
-    { id: 'laser-relay', type: 'laser-relay', position: V(0, 5, 0) },
+    // Relay/receiver nodes sit at y=4.7 so the y=5 beam line crosses their
+    // colliders solidly (at y=5 it grazed the bodies' bottom face and missed).
+    { id: 'laser-relay', type: 'laser-relay', position: V(0, 4.7, 0) },
     { id: 'glass-window', type: 'glass', position: V(3, 4.5, 0), size: { width: 2, height: 4 }, orientation: 'x' },
-    { id: 'laser-receiver', type: 'laser-receiver', position: V(6, 5, 0), links: [{ targetId: 'exit-door' }] },
+    { id: 'laser-receiver', type: 'laser-receiver', position: V(6, 4.7, 0), links: [{ targetId: 'exit-door' }] },
     { id: 'exit-door', type: 'door', position: V(0, 0, 5), orientation: 'x', startsOpen: false, require: 'all' },
     { id: 'exit-elevator', type: 'exit-elevator', position: V(0, 0, 6.2) },
   ],

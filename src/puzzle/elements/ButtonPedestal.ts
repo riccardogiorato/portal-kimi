@@ -1,9 +1,8 @@
 /**
  * puzzle/elements/ButtonPedestal.ts — standing pedestal button.
  */
-import { Color3, MeshBuilder } from '@babylonjs/core';
+import { Color3, MeshBuilder, Vector3 } from '@babylonjs/core';
 import type { AbstractMesh } from '@babylonjs/core';
-import { CONFIG } from '../../core/Config';
 import { damp } from '../../core/math';
 import { SOUND } from '../../core/soundIds';
 import { BasePuzzleElement } from '../PuzzleElement';
@@ -27,7 +26,6 @@ export class ButtonPedestal extends BasePuzzleElement<{
   private readonly mode: 'momentary' | 'latching';
   private latchingActive = false;
   private momentaryTimer = 0;
-  private wasHovering = false;
   private wasActive = false;
 
   constructor(
@@ -86,6 +84,22 @@ export class ButtonPedestal extends BasePuzzleElement<{
         this.momentaryTimer = MOMENTARY_HOLD;
       }
     });
+
+    // Solid stand: without a collider the player walked straight through the
+    // pedestal. The interactableId lives on the COLLIDER's proxy mesh: the
+    // interact scan is a physics raycast, and the button sphere has no body —
+    // without this the button was unpressable.
+    const collider = this.ctx.systems.physics.createStaticBox({
+      id: `bp-${id}-collider`,
+      // Covers base + pillar; the button sphere pokes out above (stays
+      // visible). Aiming at the sphere sends the ray through it (bodyless)
+      // into the collider behind — the prompt still appears.
+      size: new Vector3(0.4, 0.4 + PEDESTAL_HEIGHT, 0.4),
+      position: this.node.position.clone().add(new Vector3(0, (0.4 + PEDESTAL_HEIGHT) / 2, 0)),
+    });
+    this.trackBody(collider);
+    const proxy = this.ctx.systems.physics.getMeshForBody(collider);
+    if (proxy) proxy.metadata = { interactableId: id, interactPrompt: '[E] Press' };
   }
 
   update(dtSeconds: number): void {
@@ -111,22 +125,5 @@ export class ButtonPedestal extends BasePuzzleElement<{
     this.buttonMaterial.emissiveColor = active
       ? this.materials.cyanEmissive.emissiveColor
       : this.materials.orangeEmissive.emissiveColor;
-
-    this.updateHoverPrompt();
-  }
-
-  private updateHoverPrompt(): void {
-    const player = this.ctx.systems.player.position;
-    const dx = player.x - this.node.position.x;
-    const dy = player.y - this.node.position.y;
-    const dz = player.z - this.node.position.z;
-    const distSq = dx * dx + dy * dy + dz * dz;
-    const hovering = distSq < CONFIG.player.interactDistance * CONFIG.player.interactDistance;
-    if (hovering !== this.wasHovering) {
-      this.wasHovering = hovering;
-      this.ctx.events.emit('player:interactPrompt', {
-        text: hovering ? '[E] Press' : null,
-      });
-    }
   }
 }

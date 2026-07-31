@@ -4,13 +4,15 @@
  * position, orientation and momentum correctly.
  */
 import { describe, expect, it } from 'vitest';
-import { Matrix, Quaternion, Vector3 } from '@babylonjs/core';
+import { Matrix, Quaternion, Vector3, Vector4 } from '@babylonjs/core';
 import {
   crossedPortalThisFrame,
   damp,
   isWithinPortalBounds,
   lerpAngle,
+  makeObliqueProjection,
   portalPairTransform,
+  portalPairTransformToRef,
   signedDistanceToPortalPlane,
   transformDirectionThroughPortal,
   type PortalFrame,
@@ -90,6 +92,95 @@ describe('portalPairTransform', () => {
     const walkingIn = new Vector3(-1, 0, 0);
     const out = transformDirectionThroughPortal(walkingIn, m);
     expectVectorClose(out.normalizeToNew(), new Vector3(1, 0, 0));
+  });
+});
+
+describe('portalPairTransformToRef', () => {
+  // Regression: the ToRef variant is what every live path (teleport, RTT
+  // virtual camera) actually calls, while tests only covered the allocating
+  // variant — a Hadamard-vs-matrix-product bug shipped invisibly. Pin the
+  // two to identical results.
+  const scenarios: Array<{ name: string; a: PortalFrame; b: PortalFrame }> = [
+    {
+      name: 'opposite walls (awakening blue→orange)',
+      a: { position: new Vector3(0, 1.67, -5.855), normal: new Vector3(0, 0, 1), up: UP },
+      b: { position: new Vector3(-2, 1.66, 5.855), normal: new Vector3(0, 0, -1), up: UP },
+    },
+    {
+      name: 'west wall → north wall',
+      a: { position: new Vector3(-5, 1.5, 0), normal: new Vector3(1, 0, 0), up: UP },
+      b: { position: new Vector3(0, 1.5, 5), normal: new Vector3(0, 0, -1), up: UP },
+    },
+    {
+      name: 'floor → wall (fling)',
+      a: { position: new Vector3(0, 0, 0), normal: new Vector3(0, 1, 0), up: new Vector3(0, 0, -1) },
+      b: { position: new Vector3(0, 1.5, 5), normal: new Vector3(0, 0, -1), up: UP },
+    },
+    {
+      name: 'same wall, side by side',
+      a: { position: new Vector3(-5, 1.5, 0), normal: new Vector3(1, 0, 0), up: UP },
+      b: { position: new Vector3(-5, 1.5, 3), normal: new Vector3(1, 0, 0), up: UP },
+    },
+  ];
+
+  for (const { name, a, b } of scenarios) {
+    it(`matches portalPairTransform: ${name}`, () => {
+      const expected = portalPairTransform(a, b);
+      const actual = Matrix.Identity();
+      portalPairTransformToRef(a, b, actual);
+      for (let i = 0; i < 16; i++) {
+        expect(actual.m[i], `m[${i}]`).toBeCloseTo(expected.m[i], 4);
+      }
+    });
+  }
+
+  it('maps the awakening entry point to the exit strip', () => {
+    const blue: PortalFrame = { position: new Vector3(0, 1.67, -5.855), normal: new Vector3(0, 0, 1), up: UP };
+    const orange: PortalFrame = { position: new Vector3(-2, 1.66, 5.855), normal: new Vector3(0, 0, -1), up: UP };
+    const m = Matrix.Identity();
+    portalPairTransformToRef(blue, orange, m);
+    const exited = Vector3.TransformCoordinates(new Vector3(0, 1.0, -5.475), m);
+    // 0.38m in front of blue maps to 0.38m BEHIND orange's plane (z > 5.855);
+    // y drops 1cm because orange's frame sits 1cm lower than blue's.
+    expectVectorClose(exited, new Vector3(-2, 0.99, 6.235));
+  });
+});
+
+describe('makeObliqueProjection', () => {
+  // Regression: an earlier version rewrote the third ROW (m[8..11]) instead of
+  // the clip-z column, clobbering w and rendering the portal RTT black.
+  const proj = Matrix.PerspectiveFovLH(1.31, 1.5, 0.05, 1000);
+  // Portal plane 1.655m in front of the virtual camera (camera on negative side).
+  const plane = { x: 0, y: 0, z: 1, w: -1.655 };
+  const oblique = makeObliqueProjection(proj, plane);
+
+  const ndcZ = (zView: number): number => {
+    const clip = Vector4.TransformCoordinates(new Vector3(0, 0, zView), oblique);
+    return clip.z / clip.w;
+  };
+
+  it('keeps w positive in front of the camera', () => {
+    const clip = Vector4.TransformCoordinates(new Vector3(0, 0, 5), oblique);
+    expect(clip.w).toBeGreaterThan(0);
+  });
+
+  it('moves the near plane to the clip plane', () => {
+    expect(ndcZ(1.655)).toBeCloseTo(0, 3);
+  });
+
+  it('clips geometry on the camera side of the plane', () => {
+    expect(ndcZ(1.0)).toBeLessThan(0);
+    expect(ndcZ(0.1)).toBeLessThan(0);
+  });
+
+  it('keeps room geometry beyond the plane visible', () => {
+    const z = ndcZ(5);
+    expect(z).toBeGreaterThan(0);
+    expect(z).toBeLessThan(1);
+  });
+
+  it('maps the far plane to ndc 1', () => {
+    expect(ndcZ(1000)).toBeCloseTo(1, 2);
   });
 });
 

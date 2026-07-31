@@ -44,6 +44,18 @@ export class LaserReceiver extends BasePuzzleElement<LaserReceiverSpec> implemen
     this.dish.material = materials.orangeEmissive;
     this.track(this.dish);
 
+    // The emitter's beam is a PHYSICS raycast — without a body it never
+    // registers the receiver at all. The proxy carries the elementId the
+    // emitter looks up in the laserTargets map.
+    const body = this.ctx.systems.physics.createStaticBox({
+      id: `recv-${id}-body`,
+      size: new Vector3(0.35, 0.5, 0.25),
+      position: this.node.position.clone().add(new Vector3(0, 0.25, 0)),
+    });
+    this.trackBody(body);
+    const proxy = this.ctx.systems.physics.getMeshForBody(body);
+    if (proxy) proxy.metadata = { elementId: id };
+
     this.puzzle.laserTargets.set(id, this);
   }
 

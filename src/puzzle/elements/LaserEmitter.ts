@@ -325,15 +325,21 @@ export class LaserEmitter extends BasePuzzleElement<LaserEmitterSpec> {
     const py = this.ctx.systems.player.position.y;
     const pz = this.ctx.systems.player.position.z;
 
-    let d2 = nearestSquared(px, py, pz, this.nose, this.segment1End);
-    if (this.hasPortalHop) {
-      const d2Seg = nearestSquared(px, py, pz, this.portalOut, this.segment2End);
-      if (d2Seg < d2) d2 = d2Seg;
-    }
-
-    if (d2 <= PLAYER_KILL_RADIUS * PLAYER_KILL_RADIUS) {
-      this.ctx.events.emit('player:died', { cause: 'laser' });
-      this.ctx.systems.audio.playAt(SOUND.laserKill, this.ctx.systems.player.position);
+    // player.position is the capsule CENTER: a single center-to-beam distance
+    // lets ankle/knee-height beams pass through the legs harmlessly. Sample
+    // the capsule axis at three heights so any beam touch kills.
+    const halfHeight = CONFIG.player.height / 2;
+    for (const sampleY of [py - halfHeight * 0.75, py, py + halfHeight * 0.75]) {
+      let d2 = nearestSquared(px, sampleY, pz, this.nose, this.segment1End);
+      if (this.hasPortalHop) {
+        const d2Seg = nearestSquared(px, sampleY, pz, this.portalOut, this.segment2End);
+        if (d2Seg < d2) d2 = d2Seg;
+      }
+      if (d2 <= PLAYER_KILL_RADIUS * PLAYER_KILL_RADIUS) {
+        this.ctx.events.emit('player:died', { cause: 'laser' });
+        this.ctx.systems.audio.playAt(SOUND.laserKill, this.ctx.systems.player.position);
+        return;
+      }
     }
   }
 

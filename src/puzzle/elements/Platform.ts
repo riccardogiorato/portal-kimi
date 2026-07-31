@@ -11,7 +11,9 @@ import type { PuzzleContext } from '../types';
 import { withToRef } from '../physicsToRef';
 
 const PLATFORM_SIZE = { width: 2.2, height: 0.22, depth: 2.2 };
-const FOOTPRINT_HALF = 0.38;
+/** Carry footprint: nearly the full 2.2m deck (edge margin so a rider about
+ * to step off isn't yanked back). */
+const FOOTPRINT_HALF = 1.0;
 
 interface PlatformSpec extends Extract<PuzzleElementSpec, { type: 'platform' }> {}
 
@@ -118,9 +120,10 @@ export class Platform extends BasePuzzleElement<PlatformSpec> {
     }
 
     const physics = withToRef(this.ctx.systems.physics);
+    const cubeHalf = CONFIG.physics.cubeSize / 2;
     for (const t of physics.getTeleportables()) {
       physics.getBodyPositionToRef(t.handle, this.scratchBodyPos);
-      if (this.pointOnTop(this.scratchBodyPos)) {
+      if (this.pointOnTop(this.scratchBodyPos, this.scratchBodyPos.y - cubeHalf)) {
         physics.getLinearVelocityToRef(t.handle, this.scratchBodyVel);
         this.scratchBodyVel.addInPlace(this.velocity);
         physics.setLinearVelocity(t.handle, this.scratchBodyVel);
@@ -155,12 +158,14 @@ export class Platform extends BasePuzzleElement<PlatformSpec> {
   }
 
   private playerStandsOnPlatform(): boolean {
-    return this.pointOnTop(this.ctx.systems.player.position);
+    // player.position is the capsule CENTER — test the FEET against the deck.
+    const pos = this.ctx.systems.player.position;
+    return this.pointOnTop(pos, pos.y - CONFIG.player.height / 2);
   }
 
-  private pointOnTop(point: Vector3): boolean {
-    const localY = point.y - (this.node.position.y + PLATFORM_SIZE.height);
-    if (localY < -0.1 || localY > 0.6) return false;
+  private pointOnTop(point: Vector3, bottomY: number): boolean {
+    const localY = bottomY - (this.node.position.y + PLATFORM_SIZE.height);
+    if (localY < -0.1 || localY > 0.3) return false;
     return (
       Math.abs(point.x - this.node.position.x) <= FOOTPRINT_HALF &&
       Math.abs(point.z - this.node.position.z) <= FOOTPRINT_HALF

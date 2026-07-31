@@ -43,6 +43,17 @@ export class LaserRelay extends BasePuzzleElement<LaserRelaySpec> implements Las
     this.lens.material = materials.orangeEmissive;
     this.track(this.lens);
 
+    // Physics body so the beam's raycast registers the relay (and passes
+    // through it via passesBeamThrough).
+    const body = this.ctx.systems.physics.createStaticBox({
+      id: `relay-${id}-body`,
+      size: new Vector3(0.25, 0.48, 0.25),
+      position: this.node.position.clone().add(new Vector3(0, 0.24, 0)),
+    });
+    this.trackBody(body);
+    const proxy = this.ctx.systems.physics.getMeshForBody(body);
+    if (proxy) proxy.metadata = { elementId: id };
+
     this.puzzle.laserTargets.set(id, this);
   }
 

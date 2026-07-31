@@ -44,8 +44,10 @@ export const CONFIG = {
     minSurfaceHeight: 2.25,
     /** Seconds an entity must wait before it can teleport again. */
     teleportCooldownSeconds: 0.08,
-    /** Extra push applied along the exit normal after teleporting. */
-    exitNudge: 0.06,
+    /** Extra push applied along the exit normal after teleporting. Must
+     * exceed player radius + touch margin (0.43) so a stationary entity at
+     * the exit doesn't instantly re-trigger the touch-based crossing test. */
+    exitNudge: 0.5,
     colors: {
       blue: { r: 0.12, g: 0.55, b: 1.0 },
       orange: { r: 1.0, g: 0.45, b: 0.08 },
@@ -76,7 +78,7 @@ export const CONFIG = {
     funnelRadius: 0.9,
     lightBridgeThickness: 0.12,
     platformDefaultSpeed: 1.6,
-    gooKillDepth: 0.25,
+    gooKillDepth: 0.4, // kill line = surface(0.15) + this = 0.55: above the proxy top so waders die, below a flat jump arc (~0.8)
   },
 
   levels: {

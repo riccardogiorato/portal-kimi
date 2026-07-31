@@ -18,6 +18,7 @@ export class LightBridge extends BasePuzzleElement<LightBridgeSpec> {
   private readonly direction: Vector3;
   private active: boolean;
   private readonly panel: AbstractMesh;
+  private readonly midLocal: Vector3;
   private readonly emitter: AbstractMesh;
   private body: PhysicsBodyHandle | null = null;
   private loopId: string | null = null;
@@ -41,7 +42,10 @@ export class LightBridge extends BasePuzzleElement<LightBridgeSpec> {
     this.emitter.material = this.ctx.systems.rendering.materials.trimMetal();
     this.track(this.emitter);
 
-    const mid = this.node.position.add(this.direction.scale(spec.length / 2));
+    // Local offset from the node to the bridge center — the panel is parented
+    // to the node, so its position must be LOCAL (a world-space mid doubled
+    // the node's offset and floated the visual away from its physics body).
+    this.midLocal = this.direction.scale(spec.length / 2);
     const orient = new TransformNode(`bridge-${id}-tmp`, this.scene);
     orient.position.copyFrom(this.node.position);
     orient.lookAt(this.node.position.add(this.direction));
@@ -50,10 +54,13 @@ export class LightBridge extends BasePuzzleElement<LightBridgeSpec> {
 
     this.panel = MeshBuilder.CreateBox(
       `bridge-${id}-panel`,
-      { width: BRIDGE_WIDTH, height: spec.length, depth: CONFIG.puzzle.lightBridgeThickness },
+      // Length runs along local Z: lookAt aims local +Z down the bridge
+      // direction. (A Y-length box stays vertical after lookAt — the bridge
+      // used to stand upright like a wall.)
+      { width: BRIDGE_WIDTH, height: CONFIG.puzzle.lightBridgeThickness, depth: spec.length },
       this.scene,
     );
-    this.panel.position.copyFrom(mid);
+    this.panel.position.copyFrom(this.midLocal);
     this.panel.rotationQuaternion = rotation;
     this.panel.material = materials.bridgeEnergy;
     this.panel.metadata = { ...this.panel.metadata, portalable: false };
@@ -88,8 +95,9 @@ export class LightBridge extends BasePuzzleElement<LightBridgeSpec> {
     if (this.body) return;
     const options: StaticBoxOptions = {
       id: `bridge-body-${this.id}`,
-      size: new Vector3(BRIDGE_WIDTH, this.spec.length, CONFIG.puzzle.lightBridgeThickness),
-      position: this.panel.position.clone(),
+      size: new Vector3(BRIDGE_WIDTH, CONFIG.puzzle.lightBridgeThickness, this.spec.length),
+      // World position = node + local mid (panel.position is node-relative).
+      position: this.node.position.add(this.midLocal),
     };
     if (this.panel.rotationQuaternion) {
       options.rotation = this.panel.rotationQuaternion.clone();

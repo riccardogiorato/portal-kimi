@@ -12,7 +12,9 @@ import { withToRef } from '../physicsToRef';
 
 const BUTTON_SIZE = 0.8;
 const BUTTON_PLATE_RADIUS = 0.36;
-const DETECTION_Y_TOLERANCE = 0.45;
+/** |bottom - plateTop| tolerance: generous enough for physics jitter, tight
+ * enough that a jump arc over the button (bottom ≳ 0.8) doesn't trip it. */
+const DETECTION_Y_TOLERANCE = 0.3;
 
 type ButtonFloorSpec = {
   id: string;
@@ -95,50 +97,39 @@ export class ButtonFloor extends BasePuzzleElement<ButtonFloorSpec> {
   /** Zero-allocation check for a heavy body or the player standing on the plate. */
   private isPressed(): boolean {
     const centerX = this.node.position.x;
-    const centerY = this.node.position.y;
     const centerZ = this.node.position.z;
+    // The collider is 0.3 tall centered on the node: its top (the standing
+    // surface) sits 0.15 above the node.
+    const plateTop = this.node.position.y + 0.15;
 
+    // player.position is the capsule CENTER (~0.9 above the feet) — test the
+    // FEET against the plate top or a standing player never registers.
+    const player = this.ctx.systems.player.position;
+    const playerFeet = player.y - this.ctx.config.player.height / 2;
     if (
-      isWithinButtonDisc(
-        this.ctx.systems.player.position.x,
-        this.ctx.systems.player.position.y,
-        this.ctx.systems.player.position.z,
-        centerX,
-        centerY,
-        centerZ,
-      )
+      Math.abs(playerFeet - plateTop) <= DETECTION_Y_TOLERANCE &&
+      Math.hypot(player.x - centerX, player.z - centerZ) <= BUTTON_PLATE_RADIUS
     ) {
       return true;
     }
 
     const physics = withToRef(this.ctx.systems.physics);
+    const cubeHalf = CONFIG.physics.cubeSize / 2;
     for (const tele of physics.getTeleportables()) {
       physics.getBodyPositionToRef(tele.handle, this.scratchBodyPos);
       // All teleportable objects in this game are Weighted Storage Cubes (cubeMass),
       // so they are heavy enough if cubeMass >= buttonTriggerMass.
+      if (CONFIG.physics.cubeMass < CONFIG.puzzle.buttonTriggerMass) continue;
+      const cubeBottom = this.scratchBodyPos.y - cubeHalf;
       if (
-        CONFIG.physics.cubeMass >= CONFIG.puzzle.buttonTriggerMass &&
-        isWithinButtonDisc(this.scratchBodyPos.x, this.scratchBodyPos.y, this.scratchBodyPos.z, centerX, centerY, centerZ)
+        Math.abs(cubeBottom - plateTop) <= DETECTION_Y_TOLERANCE &&
+        Math.hypot(this.scratchBodyPos.x - centerX, this.scratchBodyPos.z - centerZ) <= BUTTON_PLATE_RADIUS
       ) {
         return true;
       }
     }
     return false;
   }
-}
-
-function isWithinButtonDisc(
-  px: number,
-  py: number,
-  pz: number,
-  cx: number,
-  cy: number,
-  cz: number,
-): boolean {
-  return (
-    Math.abs(py - cy) <= DETECTION_Y_TOLERANCE + 1e-6 &&
-    Math.hypot(px - cx, pz - cz) <= BUTTON_PLATE_RADIUS + 1e-6
-  );
 }
 
 /** Pure state machine for momentary/latching floor buttons. */
