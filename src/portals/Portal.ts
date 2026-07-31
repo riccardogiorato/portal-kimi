@@ -216,12 +216,15 @@ export class Portal {
     if (this.state === 'closed') return;
 
     const linkedFrame = linked?.portalFrame ?? null;
-    const linkedRTT = linked?.renderTarget ?? null;
-    const showThrough = linkedFrame !== null && linkedRTT !== null && this.state !== 'closing';
+    // The surface samples THIS portal's OWN RTT: its virtual camera sits
+    // behind the LINKED portal looking out of it (mainCam × pair(this→linked)),
+    // which is exactly the view you see looking into this portal. Sampling the
+    // linked portal's RTT instead shows the void behind THIS portal's wall.
+    const showThrough = linkedFrame !== null && this.rtt !== null && this.state !== 'closing';
     this.surfaceMaterial.setFloat('linked', showThrough ? 1 : 0);
-    if (showThrough && this.assignedRTT !== linkedRTT) {
-      this.surfaceMaterial.setTexture('rttSampler', linkedRTT);
-      this.assignedRTT = linkedRTT;
+    if (showThrough && this.assignedRTT !== this.rtt) {
+      this.surfaceMaterial.setTexture('rttSampler', this.rtt!);
+      this.assignedRTT = this.rtt;
     }
     if (!showThrough || !this.frame || !linkedFrame) return;
 
@@ -278,8 +281,18 @@ export class Portal {
   }
 
   private createRTT(size: number): void {
-    this.rtt = new RenderTargetTexture(`portal-${this.color}-rtt`, size, this.scene, true);
+    // generateMipMaps = false: the surface samples this RTT in screen space
+    // and needs mip 0 (the live view). With mips enabled, small on-screen
+    // portals sample high LODs — which are black when the engine doesn't
+    // regenerate the chain (headless SwiftShader, some drivers), and per-frame
+    // mip generation is wasted GPU either way.
+    this.rtt = new RenderTargetTexture(`portal-${this.color}-rtt`, size, this.scene, false);
     this.rtt.activeCamera = this.virtualCamera;
+    // Babylon 9's default renderList is an EMPTY ARRAY = render nothing (the
+    // RTT clears to the scene clear color and stays black). Point it at the
+    // scene's live mesh list; the virtual camera's layerMask still excludes
+    // this portal's own surface.
+    this.rtt.renderList = this.scene.meshes;
     this.rtt.refreshRate = this.refreshRate;
     this.rtt.clearColor = this.scene.clearColor;
     this.scene.customRenderTargets.push(this.rtt);
