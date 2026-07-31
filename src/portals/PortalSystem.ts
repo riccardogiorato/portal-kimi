@@ -284,11 +284,17 @@ export class PortalSystem implements IPortalSystem {
     // Capsule-touch test: the capsule center can never REACH a wall portal's
     // plane (the wall stops it radius+skin short), so a center-crossing test
     // only ever worked for floor portals. Trigger when the capsule surface
-    // touches the plane from the front side within the ellipse bounds.
+    // touches the plane from the front side within the ellipse bounds. The
+    // touch distance is the capsule's extent ALONG THE PORTAL NORMAL: radius
+    // for wall portals, half-height for floor/ceiling portals (a capsule
+    // standing on a floor portal has its center a full half-height away).
     const playerPos = player.position;
-    const playerTouch = CONFIG.player.radius + TOUCH_MARGIN;
+    const capsuleRadius = CONFIG.player.radius;
+    const capsuleHalf = CONFIG.player.height / 2;
     for (const [portal, linked] of this.pairs) {
       const frame = portal.portalFrame!;
+      const normalY = Math.abs(frame.normal.y);
+      const playerTouch = capsuleRadius + (capsuleHalf - capsuleRadius) * normalY + TOUCH_MARGIN;
       const dCur = signedDistanceToPortalPlaneFast(playerPos, frame);
       const dPrev = signedDistanceToPortalPlaneFast(this.prevPlayerPos, frame);
       if (
@@ -300,7 +306,15 @@ export class PortalSystem implements IPortalSystem {
         portalPairTransformToRef(frame, linked.portalFrame!, this.scratchPair);
         // Matrix.m is a Float32Array — structurally a Matrix4Like. The player
         // copies values out synchronously; the scratch is reused next frame.
-        player.teleportThroughPortal(this.scratchPair as unknown as Matrix4Like, linked.portalFrame!.normal);
+        // Depth-aware nudge: the pair maps front-of-source to BEHIND-target,
+        // so the exit must be pushed out by the entry depth (a floor entry at
+        // the touch threshold is ~1m deep — a fixed 0.5 nudge leaves the
+        // player embedded in the exit wall).
+        player.teleportThroughPortal(
+          this.scratchPair as unknown as Matrix4Like,
+          linked.portalFrame!.normal,
+          Math.max(0, dCur) + 0.06,
+        );
         this.teleportCooldowns.recordTeleport(PLAYER_ENTITY_ID, this.elapsedSeconds);
         this.ctx.events.emit('player:teleported', { color: portal.color });
         this.ctx.systems.audio.playAt(SOUND.portalEnter, frame.position);

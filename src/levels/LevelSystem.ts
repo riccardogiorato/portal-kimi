@@ -83,6 +83,10 @@ export class LevelSystem implements ILevelSystem {
 
     this.ctx.events.emit('level:loading', { levelIndex: index, definition: def });
 
+    // Portals from the previous chamber must not survive the load: their
+    // frames would float mid-air in the new geometry and hijack fire rays
+    // (the hop-through-portal path) and crossing checks.
+    this.ctx.systems.portals.clearAll();
     this.ctx.systems.puzzle.clearChamber();
     this.builder?.dispose();
     this.builder = new ChamberBuilder(this.ctx);

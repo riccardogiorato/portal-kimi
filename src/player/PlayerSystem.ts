@@ -474,7 +474,7 @@ export class PlayerSystem implements IPlayerSystem {
   // Contract methods
   // -------------------------------------------------------------------------
 
-  teleportThroughPortal(worldTransform: Matrix4Like, linkedNormal: Vector3): void {
+  teleportThroughPortal(worldTransform: Matrix4Like, linkedNormal: Vector3, exitNudge?: number): void {
     // Rebuild the pair transform into a scratch matrix (row-major: matches
     // core/math portalPairTransform, which builds via Matrix.FromValues).
     Matrix.FromArrayToRef(worldTransform.m, 0, this.scratchMatrix);
@@ -492,8 +492,9 @@ export class PlayerSystem implements IPlayerSystem {
     this.yaw = angles.yaw;
     this.pitch = angles.pitch;
     // Exit nudge offsets the capsule clear of the exit portal plane along the
-    // linked normal (position only — speed is unaffected).
-    linkedNormal.scaleToRef(this.ctx.config.portals.exitNudge, this.scratchB);
+    // linked normal (position only — speed is unaffected). The caller passes
+    // a depth-aware value (floor entries need ~1m; wall entries ~0.5m).
+    linkedNormal.scaleToRef(exitNudge ?? this.ctx.config.portals.exitNudge, this.scratchB);
     this.scratchA.addInPlace(this.scratchB);
     this.controller.setPosition(this.scratchA);
     // Release any carried object; the portal system teleports it separately.
@@ -535,6 +536,10 @@ export class PlayerSystem implements IPlayerSystem {
   launch(velocity: Vector3): void {
     this.simVelocity.copyFrom(velocity);
     this.grounded = false;
+    // Same phantom-support mask as a jump: without it, the CC's lingering
+    // SUPPORTED state reads as a landing next frame and zeroes the launch
+    // velocity (faith plates fired but the player never moved).
+    this.jumpAirborne = true;
     this.wasGrounded = false;
   }
 

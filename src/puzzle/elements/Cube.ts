@@ -41,6 +41,13 @@ export class Cube extends BasePuzzleElement<{
     this.objectId = `${id}-object`;
     const size = CONFIG.physics.cubeSize;
 
+    // The physics body drives the cube mesh's LOCAL transform as if it were
+    // world space. With the element node offset at spec.position, that double-
+    // applied the offset (mesh rendered at 2× position, getBodyPosition read
+    // the doubled absolute). Anchor the node at the origin instead — the body
+    // is the single source of truth for the cube's pose.
+    this.node.position.setAll(0);
+
     const cubeMesh = MeshBuilder.CreateBox(`cube-${id}`, { size }, this.scene);
     cubeMesh.material = this.ctx.systems.rendering.materials.cubeShell();
     cubeMesh.metadata = {

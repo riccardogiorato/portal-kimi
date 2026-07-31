@@ -226,7 +226,7 @@ export interface IPlayerSystem extends ISystem {
   readonly velocity: Vector3;
   readonly isGrounded: boolean;
   /** Apply a portal-pair transform to the player (position, rotation, velocity). */
-  teleportThroughPortal(worldTransform: Matrix4Like, linkedNormal: Vector3): void;
+  teleportThroughPortal(worldTransform: Matrix4Like, linkedNormal: Vector3, exitNudge?: number): void;
   /** Instantly move the player to a spawn point and zero velocity. */
   placeAt(spawn: SpawnTransform): void;
   /** Enable/disable simulation + input (menus, death, cutscene). */

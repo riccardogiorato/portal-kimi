@@ -23,7 +23,10 @@ export const CHAMBER_FAITH: ChamberDefinition = {
   ],
   hint: 'Ride the faith plate to the ledge, portal over to the pedestal button, then cross the bridge.',
   elements: [
-    { id: 'start-plate', type: 'faith-plate', position: V(0, 0, -4), target: V(0, 4, -1), power: 14 },
+    // power is a SPEED MULTIPLIER (base = √(g·distance) ≈ 7.7 m/s): 1.4 → a
+    // ~15 m/s steep arc peaking at ~6m that lands exactly on the platform.
+    // (power: 14 produced a 107 m/s vertical rocket and an infinite bounce.)
+    { id: 'start-plate', type: 'faith-plate', position: V(0, 0, -4), target: V(0, 4, -1), power: 1.4 },
     { id: 'landing-platform', type: 'platform', position: V(0, 4, -1), path: [V(0, 4, -1), V(0, 4, -1)], startsActive: true, speed: 0 },
     { id: 'button-ledge', type: 'platform', position: V(-5, 3.8, -1), path: [V(-5, 3.8, -1), V(-5, 3.8, -1)], startsActive: true, speed: 0 },
     { id: 'bridge-button', type: 'button-pedestal', position: V(-5, 4, -1), mode: 'latching', links: [{ targetId: 'bridge' }] },

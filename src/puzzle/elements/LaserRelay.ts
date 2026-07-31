@@ -8,7 +8,7 @@ import { BasePuzzleElement } from '../PuzzleElement';
 import { PuzzleMaterials } from '../materials';
 import type { LaserTarget, PuzzleContext } from '../types';
 
-const HIT_GRACE_SECONDS = 0.05;
+const HIT_GRACE_SECONDS = 0.15; // see LaserReceiver for the rationale
 
 type LaserRelaySpec = Extract<PuzzleElementSpec, { type: 'laser-relay' }>;
 

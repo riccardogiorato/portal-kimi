@@ -8,7 +8,10 @@ import { BasePuzzleElement } from '../PuzzleElement';
 import { PuzzleMaterials } from '../materials';
 import type { LaserTarget, PuzzleContext } from '../types';
 
-const HIT_GRACE_SECONDS = 0.05;
+/** Hold-through grace: must exceed one clamped frame (0.05s) with margin so
+ * the receiver doesn't flicker on frame hitches (0.05 expired within a single
+ * clamped frame and the receiver never latched). */
+const HIT_GRACE_SECONDS = 0.15;
 
 type LaserReceiverSpec = Extract<PuzzleElementSpec, { type: 'laser-receiver' }>;
 

@@ -78,6 +78,23 @@ export class PuzzleSystem implements IPuzzleSystem {
     this.solver.reset();
   }
 
+  /**
+   * Two passes: register every target BEFORE adding any link. addLink drops
+   * the target-side record when the target isn't registered yet, so a source
+   * spec appearing before its target in the chamber definition (button before
+   * door, receiver before door — i.e. every chamber) silently lost the link.
+   */
+  private buildSolver(specs: readonly PuzzleElementSpec[]): void {
+    for (const spec of specs) {
+      this.solver.registerTarget(spec.id, reactorRequirement(spec), defaultActive(spec));
+    }
+    for (const spec of specs) {
+      for (const link of spec.links ?? []) {
+        this.solver.addLink(spec.id, link.targetId, link.invert ?? false);
+      }
+    }
+  }
+
   update(dtSeconds: number): void {
     for (const [id, element] of this.elements) {
       if (element instanceof BasePuzzleElement && element.disposed) {
@@ -159,14 +176,6 @@ export class PuzzleSystem implements IPuzzleSystem {
     }
   }
 
-  private buildSolver(specs: readonly PuzzleElementSpec[]): void {
-    for (const spec of specs) {
-      this.solver.registerTarget(spec.id, reactorRequirement(spec), defaultActive(spec));
-      for (const link of spec.links ?? []) {
-        this.solver.addLink(spec.id, link.targetId, link.invert ?? false);
-      }
-    }
-  }
 }
 
 function reactorRequirement(spec: PuzzleElementSpec): 'all' | 'any' {

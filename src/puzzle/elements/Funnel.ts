@@ -102,7 +102,12 @@ export class Funnel extends BasePuzzleElement<FunnelSpec> {
 
     if (this.inBeam(player.position, dtSeconds)) {
       this.direction.scaleToRef(axisSpeed * dtSeconds, this.scratchAxisForce);
-      this.scratchAxisForce.y += gravityCancel;
+      // Gravity cancel only when airborne: a grounded player is supported by
+      // the floor (no gravity to cancel), so the unconditional +g·dt was a
+      // net upward force that floated them up out of the beam and into the goo.
+      if (!player.isGrounded) {
+        this.scratchAxisForce.y += gravityCancel;
+      }
       this.scratchAxisForce.addInPlace(this.scratchCenter);
       player.addExternalVelocity(this.scratchAxisForce);
     }
